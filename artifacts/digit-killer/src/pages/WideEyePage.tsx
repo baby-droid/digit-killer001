@@ -6,23 +6,18 @@ import {
 import { useSymbol } from "@/context/SymbolContext";
 import { Eye } from "lucide-react";
 
+// Established digit color palette (consistent with rest of app)
 const DIGIT_COLORS: Record<number, string> = {
-  0: "#e74c3c", 1: "#3498db", 2: "#1abc9c", 3: "#2ecc71", 4: "#3498db",
-  5: "#e67e22", 6: "#e67e22", 7: "#e74c3c", 8: "#9b59b6", 9: "#f39c12",
-};
-
-// Reference-style palette — brighter, more colorful
-const BRIGHT_COLORS: Record<number, string> = {
-  0: "#e74c3c",  // red
-  1: "#3498db",  // blue
-  2: "#1abc9c",  // teal
-  3: "#2ecc71",  // green
-  4: "#3498db",  // blue
-  5: "#e67e22",  // orange
-  6: "#e67e22",  // orange/yellow
-  7: "#e74c3c",  // red
-  8: "#9b59b6",  // purple
-  9: "#f39c12",  // yellow
+  0: "#00897b", // teal
+  1: "#1e88e5", // blue
+  2: "#8e24aa", // purple
+  3: "#43a047", // green
+  4: "#fb8c00", // orange
+  5: "#00e5ff", // cyan
+  6: "#c6e500", // lime
+  7: "#e53935", // red
+  8: "#e91e8c", // pink
+  9: "#fdd835", // yellow
 };
 
 const TICK_PRESETS = [100, 120, 200, 300, 500];
@@ -35,25 +30,141 @@ interface DigitStat {
 }
 
 const MARKET_GROUPS = [
-  { label: "Volatility", symbols: [
-    { key: "R_10", label: "Vol 10" }, { key: "R_25", label: "Vol 25" },
-    { key: "R_50", label: "Vol 50" }, { key: "R_75", label: "Vol 75" },
-    { key: "R_100", label: "Vol 100" }, { key: "1HZ10V", label: "1s V10" },
-    { key: "1HZ25V", label: "1s V25" }, { key: "1HZ50V", label: "1s V50" },
-    { key: "1HZ75V", label: "1s V75" }, { key: "1HZ100V", label: "1s V100" },
-  ]},
-  { label: "Crash/Boom", symbols: [
-    { key: "CRASH300N", label: "Crash 300" }, { key: "CRASH500", label: "Crash 500" },
-    { key: "CRASH1000", label: "Crash 1000" }, { key: "BOOM300N", label: "Boom 300" },
-    { key: "BOOM500", label: "Boom 500" }, { key: "BOOM1000", label: "Boom 1000" },
-  ]},
-  { label: "Jump", symbols: [
-    { key: "JD10", label: "Jump 10" }, { key: "JD25", label: "Jump 25" },
-    { key: "JD50", label: "Jump 50" }, { key: "JD75", label: "Jump 75" },
-    { key: "JD100", label: "Jump 100" },
-  ]},
+  {
+    label: "Volatility",
+    symbols: [
+      { key: "R_10", label: "Vol 10" }, { key: "R_25", label: "Vol 25" },
+      { key: "R_50", label: "Vol 50" }, { key: "R_75", label: "Vol 75" },
+      { key: "R_100", label: "Vol 100" }, { key: "1HZ10V", label: "1s V10" },
+      { key: "1HZ25V", label: "1s V25" }, { key: "1HZ50V", label: "1s V50" },
+      { key: "1HZ75V", label: "1s V75" }, { key: "1HZ100V", label: "1s V100" },
+    ],
+  },
+  {
+    label: "Crash/Boom",
+    symbols: [
+      { key: "CRASH300N", label: "Crash 300" }, { key: "CRASH500", label: "Crash 500" },
+      { key: "CRASH1000", label: "Crash 1000" }, { key: "BOOM300N", label: "Boom 300" },
+      { key: "BOOM500", label: "Boom 500" }, { key: "BOOM1000", label: "Boom 1000" },
+    ],
+  },
+  {
+    label: "Jump",
+    symbols: [
+      { key: "JD10", label: "Jump 10" }, { key: "JD25", label: "Jump 25" },
+      { key: "JD50", label: "Jump 50" }, { key: "JD75", label: "Jump 75" },
+      { key: "JD100", label: "Jump 100" },
+    ],
+  },
 ];
 
+// ─── D-Circle Arc Gauge ───────────────────────────────────────────────────────
+// Replicates Deriv's own circular percentage ring for each digit
+function DCircleGauge({
+  digit,
+  percentage,
+  count,
+  isCurrent,
+  isMost,
+  isLeast,
+}: {
+  digit: number;
+  percentage: number;
+  count: number;
+  isCurrent: boolean;
+  isMost: boolean;
+  isLeast: boolean;
+}) {
+  const color = DIGIT_COLORS[digit];
+  const R = 30;
+  const CX = 36;
+  const CY = 36;
+  const circumference = 2 * Math.PI * R; // ≈ 188.5
+  const filled = circumference * (percentage / 100);
+  const gap = circumference - filled;
+
+  return (
+    <div className="flex flex-col items-center gap-0 select-none" style={{ minWidth: 0 }}>
+      {/* Top marker: ▲ most / ▽ least */}
+      <div className="h-4 flex items-end justify-center mb-0.5">
+        {isMost && (
+          <span className="font-bold" style={{ color: "#00e5ff", fontSize: 13 }}>▲</span>
+        )}
+        {isLeast && (
+          <span className="font-bold" style={{ color: "#ff4d4d", fontSize: 13 }}>▽</span>
+        )}
+      </div>
+
+      {/* SVG ring */}
+      <svg
+        viewBox="0 0 72 72"
+        className="transition-all duration-500"
+        style={{
+          width: "clamp(52px, 7.5vw, 76px)",
+          height: "clamp(52px, 7.5vw, 76px)",
+          filter: isCurrent ? `drop-shadow(0 0 6px ${color}cc)` : undefined,
+        }}
+      >
+        {/* Background ring */}
+        <circle
+          cx={CX} cy={CY} r={R}
+          fill="none"
+          stroke="rgba(255,255,255,0.08)"
+          strokeWidth={6}
+        />
+        {/* Colored progress arc — starts at top (−90°) */}
+        <circle
+          cx={CX} cy={CY} r={R}
+          fill="none"
+          stroke={color}
+          strokeWidth={isCurrent ? 7 : 5.5}
+          strokeLinecap="round"
+          strokeDasharray={`${filled} ${gap}`}
+          transform={`rotate(-90 ${CX} ${CY})`}
+          style={{ transition: "stroke-dasharray 0.6s ease" }}
+        />
+        {/* Digit number */}
+        <text
+          x={CX} y={CY + 1}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fill={isCurrent ? color : "rgba(255,255,255,0.85)"}
+          fontFamily="Orbitron, monospace"
+          fontWeight={isCurrent ? "900" : "700"}
+          fontSize={isCurrent ? 16 : 14}
+          style={{ transition: "all 0.3s" }}
+        >
+          {digit}
+        </text>
+      </svg>
+
+      {/* Percentage */}
+      <div
+        className="font-orbitron font-bold text-center mt-0.5"
+        style={{
+          fontSize: "clamp(9px, 1.5vw, 12px)",
+          color: isCurrent ? color : "rgba(255,255,255,0.65)",
+        }}
+      >
+        {percentage.toFixed(1)}%
+      </div>
+
+      {/* Count */}
+      <div className="font-rajdhani text-center" style={{ fontSize: "clamp(8px, 1.2vw, 10px)", color: "rgba(255,255,255,0.35)" }}>
+        {count}
+      </div>
+
+      {/* Current digit marker ▲ below */}
+      <div className="h-3 flex items-start justify-center mt-0.5">
+        {isCurrent && (
+          <span className="font-bold" style={{ color, fontSize: 11 }}>▲</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function WideEyePage() {
   const { symbol, setSymbol } = useSymbol();
   const [tickCount, setTickCount] = useState(100);
@@ -72,12 +183,23 @@ export default function WideEyePage() {
   );
 
   const d = data as Record<string, unknown> | undefined;
-  const circleCustom = (d?.d_circle_custom as { digits?: DigitStat[]; current_digit?: number; current_price?: number; count?: number }) ?? {};
+  const circleCustom = (d?.d_circle_custom as {
+    digits?: DigitStat[];
+    current_digit?: number;
+    current_price?: number;
+    count?: number;
+  }) ?? {};
   const rollingDigits: number[] = (d?.rolling_digits as number[]) ?? [];
-  const evenOdd = (d?.even_odd as { even_count?: number; odd_count?: number; even_pct?: number; odd_pct?: number; current_digit?: number }) ?? {};
+  const evenOdd = (d?.even_odd as {
+    even_count?: number;
+    odd_count?: number;
+    even_pct?: number;
+    odd_pct?: number;
+  }) ?? {};
   const currentPrice = (d?.current_price as number) ?? 0;
 
-  const digits: DigitStat[] = circleCustom.digits ?? Array.from({ length: 10 }, (_, i) => ({ digit: i, percentage: 10, rank: i + 1, count: 0 }));
+  const digits: DigitStat[] = circleCustom.digits ??
+    Array.from({ length: 10 }, (_, i) => ({ digit: i, percentage: 10, rank: i + 1, count: 0 }));
   const currentDigit = circleCustom.current_digit ?? 0;
 
   const sortedDigits = useMemo(() => [...digits].sort((a, b) => b.percentage - a.percentage), [digits]);
@@ -99,14 +221,20 @@ export default function WideEyePage() {
     };
   }, [rollingDigits, ouThreshold]);
 
-  // Recent E/O and U/O from rolling digits
-  const recentEO = useMemo(() => rollingDigits.slice(-25).map((d) => ([0, 2, 4, 6, 8].includes(d) ? "E" : "O")), [rollingDigits]);
-  const recentUO = useMemo(() => rollingDigits.slice(-25).map((d) => d < ouThreshold ? "U" : d === ouThreshold ? "=" : "O"), [rollingDigits, ouThreshold]);
+  // Recent E/O and U/O from rolling digits (last 25)
+  const recentEO = useMemo(
+    () => rollingDigits.slice(-25).map((d) => ([0, 2, 4, 6, 8].includes(d) ? "E" : "O")),
+    [rollingDigits]
+  );
+  const recentUO = useMemo(
+    () => rollingDigits.slice(-25).map((d) => d < ouThreshold ? "U" : d === ouThreshold ? "=" : "O"),
+    [rollingDigits, ouThreshold]
+  );
 
-  // Current group label for dropdown display
+  // Lookup for symbol label
   const allGroups = MARKET_GROUPS;
-  const currentGroup = allGroups.find((g) => g.symbols.find((s) => s.key === symbol));
-  const currentLabel = currentGroup?.symbols.find((s) => s.key === symbol)?.label ?? symbol;
+  const currentGroupObj = allGroups.find((g) => g.symbols.find((s) => s.key === symbol));
+  const currentLabel = currentGroupObj?.symbols.find((s) => s.key === symbol)?.label ?? symbol;
 
   return (
     <div className="space-y-3 animate-fade-in-up" data-testid="page-wide-eye">
@@ -161,7 +289,8 @@ export default function WideEyePage() {
           {/* TICK WINDOW */}
           <div className="flex flex-col gap-1">
             <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase">
-              Tick Window — <span className="text-primary font-bold">{tickCount} Ticks</span>
+              Tick Window —{" "}
+              <span className="text-primary font-bold">{tickCount} Ticks</span>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap">
               {TICK_PRESETS.map((p) => (
@@ -198,7 +327,7 @@ export default function WideEyePage() {
                 placeholder="custom"
                 data-testid="input-tick-count"
               />
-              <span className="text-xs text-muted-foreground font-rajdhani">custom (50–1000)</span>
+              <span className="text-xs text-muted-foreground font-rajdhani hidden sm:block">custom (50–1000)</span>
             </div>
           </div>
 
@@ -213,8 +342,8 @@ export default function WideEyePage() {
               <div
                 className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-orbitron text-lg font-black shadow-lg"
                 style={{
-                  background: BRIGHT_COLORS[currentDigit] ?? "#aaa",
-                  boxShadow: `0 0 16px ${BRIGHT_COLORS[currentDigit] ?? "#aaa"}80`,
+                  background: DIGIT_COLORS[currentDigit],
+                  boxShadow: `0 0 16px ${DIGIT_COLORS[currentDigit]}80`,
                   color: "#fff",
                 }}
               >
@@ -222,6 +351,61 @@ export default function WideEyePage() {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* ─── D-Circle Distribution (Deriv-style arc gauges) ─── */}
+      <div className="cyber-card p-3 md:p-4">
+        {/* Header: symbol name + price like Deriv's widget */}
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="font-orbitron font-bold text-sm text-foreground tracking-widest">
+              {currentLabel.toUpperCase()}{" "}
+              <span className="text-muted-foreground font-normal ml-2">
+                {currentPrice ? currentPrice.toFixed(currentPrice > 100 ? 2 : 4) : "—"}
+              </span>
+            </div>
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mt-0.5">
+              Last {tickCount} ticks digit distribution
+            </div>
+          </div>
+          <div className="flex items-center gap-4 text-[10px] font-rajdhani">
+            <span className="text-primary font-semibold">▲ most</span>
+            <span className="text-red-400 font-semibold">▽ least</span>
+          </div>
+        </div>
+
+        {/* 10 D-circle arc gauges */}
+        <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(10, minmax(0, 1fr))" }}>
+          {Array.from({ length: 10 }, (_, i) => i).map((d) => {
+            const stat = digits.find((x) => x.digit === d) ?? { digit: d, percentage: 10, rank: d + 1, count: 0 };
+            return (
+              <DCircleGauge
+                key={d}
+                digit={d}
+                percentage={stat.percentage}
+                count={stat.count}
+                isCurrent={d === currentDigit}
+                isMost={d === mostFrequent}
+                isLeast={d === leastFrequent}
+              />
+            );
+          })}
+        </div>
+
+        {/* Legend row */}
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-rajdhani text-muted-foreground border-t border-border/30 pt-2">
+          <span>
+            Most: <span className="text-primary font-bold">{mostFrequent}</span>{" "}
+            ({digits.find((x) => x.digit === mostFrequent)?.percentage.toFixed(1)}%)
+          </span>
+          <span>
+            Least: <span className="text-red-400 font-bold">{leastFrequent}</span>{" "}
+            ({digits.find((x) => x.digit === leastFrequent)?.percentage.toFixed(1)}%)
+          </span>
+          <span>
+            Current: <span style={{ color: DIGIT_COLORS[currentDigit], fontWeight: 700 }}>{currentDigit}</span>
+          </span>
         </div>
       </div>
 
@@ -235,30 +419,30 @@ export default function WideEyePage() {
           <div className="flex justify-between mb-1">
             {Array.from({ length: 10 }, (_, i) => (
               <div key={i} className="flex-1 flex justify-center">
-                <span
-                  className="font-orbitron text-xs font-bold"
-                  style={{ color: BRIGHT_COLORS[i] }}
-                >
+                <span className="font-orbitron text-xs font-bold" style={{ color: DIGIT_COLORS[i] }}>
                   {i}
                 </span>
               </div>
             ))}
           </div>
 
-          {/* The indicator bar */}
-          <div className="relative h-2 rounded-full overflow-hidden" style={{
-            background: "linear-gradient(to right, #e74c3c, #3498db, #1abc9c, #2ecc71, #3498db, #e67e22, #e67e22, #e74c3c, #9b59b6, #f39c12)"
-          }}>
-            {/* Dot positions */}
+          {/* Rainbow gradient bar */}
+          <div
+            className="relative h-2 rounded-full overflow-hidden"
+            style={{
+              background:
+                "linear-gradient(to right, #00897b, #1e88e5, #8e24aa, #43a047, #fb8c00, #00e5ff, #c6e500, #e53935, #e91e8c, #fdd835)",
+            }}
+          >
             {Array.from({ length: 10 }, (_, i) => (
               <div
                 key={i}
                 className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-background transition-all duration-300"
                 style={{
                   left: `calc(${(i / 9) * 100}% - 5px)`,
-                  background: BRIGHT_COLORS[i],
-                  transform: i === currentDigit ? "translateY(-50%) scale(1.4)" : "translateY(-50%)",
-                  boxShadow: i === currentDigit ? `0 0 10px ${BRIGHT_COLORS[i]}` : undefined,
+                  background: DIGIT_COLORS[i],
+                  transform: i === currentDigit ? "translateY(-50%) scale(1.5)" : "translateY(-50%)",
+                  boxShadow: i === currentDigit ? `0 0 10px ${DIGIT_COLORS[i]}` : undefined,
                   zIndex: i === currentDigit ? 10 : 1,
                 }}
               />
@@ -278,17 +462,17 @@ export default function WideEyePage() {
               style={{
                 borderLeft: "5px solid transparent",
                 borderRight: "5px solid transparent",
-                borderTop: `7px solid ${BRIGHT_COLORS[currentDigit]}`,
+                borderTop: `7px solid ${DIGIT_COLORS[currentDigit]}`,
               }}
             />
           </div>
 
-          {/* Current digit bubble below */}
+          {/* Current digit bubble — tracks position along bar */}
           <div
-            className="mt-4 mx-auto w-14 h-14 rounded-full flex items-center justify-center font-orbitron text-2xl font-black shadow-xl transition-all duration-300"
+            className="mt-4 w-14 h-14 rounded-full flex items-center justify-center font-orbitron text-2xl font-black shadow-xl transition-all duration-300"
             style={{
-              background: BRIGHT_COLORS[currentDigit],
-              boxShadow: `0 0 24px ${BRIGHT_COLORS[currentDigit]}80`,
+              background: DIGIT_COLORS[currentDigit],
+              boxShadow: `0 0 24px ${DIGIT_COLORS[currentDigit]}80`,
               color: "#fff",
               marginLeft: `calc(${(currentDigit / 9) * 100}% - 28px + 8px)`,
             }}
@@ -316,13 +500,13 @@ export default function WideEyePage() {
           </div>
         ) : (
           <div className="flex flex-wrap gap-1">
-            {rollingDigits.map((d, i) => {
+            {rollingDigits.map((dVal, i) => {
               const isLatest = i === rollingDigits.length - 1;
-              const color = BRIGHT_COLORS[d];
+              const color = DIGIT_COLORS[dVal];
               return (
                 <div
                   key={i}
-                  className="flex items-center justify-center rounded-full font-orbitron font-bold text-white flex-shrink-0 transition-all"
+                  className="flex items-center justify-center rounded-full font-orbitron font-bold text-white flex-shrink-0 transition-all duration-200"
                   style={{
                     width: isLatest ? "28px" : "22px",
                     height: isLatest ? "28px" : "22px",
@@ -330,9 +514,10 @@ export default function WideEyePage() {
                     background: color,
                     boxShadow: isLatest ? `0 0 10px ${color}90` : undefined,
                     border: isLatest ? "2px solid #fff" : undefined,
+                    opacity: Math.max(0.4, 0.4 + (i / rollingDigits.length) * 0.6),
                   }}
                 >
-                  {d}
+                  {dVal}
                 </div>
               );
             })}
@@ -340,86 +525,8 @@ export default function WideEyePage() {
         )}
 
         <div className="flex flex-wrap items-center gap-4 mt-3 text-[10px] font-rajdhani text-muted-foreground">
-          <span>▼ = latest digit</span>
-          <span>· color = digit value (0 red → 9 yellow)</span>
-          <span>· empty = awaiting ticks</span>
-        </div>
-      </div>
-
-      {/* ─── Last N Ticks Digit Distribution ─── */}
-      <div className="cyber-card p-3 md:p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase">
-            Last {tickCount} Ticks Digit Distribution
-          </div>
-          <div className="flex items-center gap-3 text-[10px] font-rajdhani">
-            <span className="text-green-400 font-semibold">▲ = most frequent</span>
-            <span className="text-red-400 font-semibold">▼ = least frequent</span>
-          </div>
-        </div>
-
-        <div className="flex gap-2 md:gap-4 flex-wrap justify-between">
-          {Array.from({ length: 10 }, (_, i) => i).map((d) => {
-            const stat = digits.find((x) => x.digit === d) ?? { digit: d, percentage: 0, rank: d + 1, count: 0 };
-            const color = BRIGHT_COLORS[d];
-            const isMost = d === mostFrequent;
-            const isLeast = d === leastFrequent;
-            const isCurrent = d === currentDigit;
-
-            return (
-              <div key={d} className="flex flex-col items-center gap-1 flex-1 min-w-[48px]" data-testid={`dist-digit-${d}`}>
-                {/* Arrow indicator */}
-                <div className="h-4 flex items-end justify-center">
-                  {isMost && <span className="text-green-400 text-sm font-bold">▲</span>}
-                  {isLeast && <span className="text-red-400 text-sm font-bold">▼</span>}
-                </div>
-
-                {/* Circle */}
-                <div
-                  className="flex items-center justify-center rounded-full font-orbitron font-black text-white transition-all duration-300"
-                  style={{
-                    width: "clamp(40px, 8vw, 60px)",
-                    height: "clamp(40px, 8vw, 60px)",
-                    fontSize: "clamp(14px, 3vw, 22px)",
-                    background: color,
-                    boxShadow: isCurrent
-                      ? `0 0 20px ${color}90, 0 0 40px ${color}40`
-                      : `0 2px 8px ${color}50`,
-                    border: isCurrent ? "3px solid #fff" : undefined,
-                    transform: isCurrent ? "scale(1.12)" : undefined,
-                  }}
-                >
-                  {d}
-                </div>
-
-                {/* Percentage */}
-                <div className="font-orbitron font-bold text-center" style={{ fontSize: "11px", color }}>
-                  {stat.percentage.toFixed(1)}%
-                </div>
-
-                {/* Count */}
-                <div className="font-rajdhani text-muted-foreground text-center" style={{ fontSize: "10px" }}>
-                  {stat.count}
-                </div>
-
-                {/* Bar */}
-                <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${stat.percentage * 10}%`, background: color }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Current/most/least legend */}
-        <div className="mt-3 font-rajdhani text-xs text-muted-foreground">
-          current digit /{" "}
-          <span className="text-green-400">most frequent = {mostFrequent} ({digits.find((x) => x.digit === mostFrequent)?.percentage.toFixed(1)}%)</span>
-          {" / "}
-          <span className="text-red-400">least frequent = {leastFrequent} ({digits.find((x) => x.digit === leastFrequent)?.percentage.toFixed(1)}%)</span>
+          <span>latest digit = white-bordered circle</span>
+          <span>opacity fades older → newer</span>
         </div>
       </div>
 
@@ -429,42 +536,36 @@ export default function WideEyePage() {
           Even / Odd
         </div>
         <div className="grid grid-cols-2 gap-4 mb-3">
-          <div>
-            <div className="flex items-baseline gap-2">
-              <span className="font-bold text-lg text-green-400" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Even</span>
-              <span className="font-orbitron text-2xl font-bold text-foreground">{evenOdd.even_count ?? 0}</span>
-              <span className="font-rajdhani text-sm text-muted-foreground">({evenOdd.even_pct ?? 50}%)</span>
+          {[
+            { label: "Even", count: evenOdd.even_count ?? 0, pct: evenOdd.even_pct ?? 50, color: "#43a047" },
+            { label: "Odd", count: evenOdd.odd_count ?? 0, pct: evenOdd.odd_pct ?? 50, color: "#e53935" },
+          ].map(({ label, count, pct, color }) => (
+            <div key={label}>
+              <div className="flex items-baseline gap-2">
+                <span className="font-bold text-lg" style={{ fontFamily: "Space Grotesk, sans-serif", color }}>{label}</span>
+                <span className="font-orbitron text-2xl font-bold text-foreground">{count}</span>
+                <span className="font-rajdhani text-sm text-muted-foreground">({pct}%)</span>
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(255,255,255,0.08)" }}>
+                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
+              </div>
             </div>
-            <div className="h-1.5 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(255,255,255,0.08)" }}>
-              <div className="h-full rounded-full bg-green-400 transition-all duration-700" style={{ width: `${evenOdd.even_pct ?? 50}%` }} />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-baseline gap-2">
-              <span className="font-bold text-lg text-red-400" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Odd</span>
-              <span className="font-orbitron text-2xl font-bold text-foreground">{evenOdd.odd_count ?? 0}</span>
-              <span className="font-rajdhani text-sm text-muted-foreground">({evenOdd.odd_pct ?? 50}%)</span>
-            </div>
-            <div className="h-1.5 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(255,255,255,0.08)" }}>
-              <div className="h-full rounded-full bg-red-400 transition-all duration-700" style={{ width: `${evenOdd.odd_pct ?? 50}%` }} />
-            </div>
-          </div>
+          ))}
         </div>
 
-        {/* Recent E/O row */}
         {recentEO.length > 0 && (
           <div>
             <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1.5">
               Recent E/O
             </div>
             <div className="flex flex-wrap gap-1">
-              {recentEO.map((label, i) => (
+              {recentEO.map((lbl, i) => (
                 <div
                   key={i}
                   className="w-6 h-6 rounded-full flex items-center justify-center font-orbitron text-[10px] font-bold text-white"
-                  style={{ background: label === "E" ? "#2ecc71" : "#e74c3c" }}
+                  style={{ background: lbl === "E" ? "#43a047" : "#e53935" }}
                 >
-                  {label}
+                  {lbl}
                 </div>
               ))}
             </div>
@@ -495,9 +596,9 @@ export default function WideEyePage() {
 
         <div className="grid grid-cols-3 gap-3 mb-3">
           {[
-            { label: "Under", count: ouStats.under, pct: ouStats.underPct, color: "#3498db" },
-            { label: "Equal", count: ouStats.equal, pct: ouStats.equalPct, color: "#95a5a6" },
-            { label: "Over", count: ouStats.over, pct: ouStats.overPct, color: "#e74c3c" },
+            { label: "Under", count: ouStats.under, pct: ouStats.underPct, color: "#1e88e5" },
+            { label: "Equal", count: ouStats.equal, pct: ouStats.equalPct, color: "#78909c" },
+            { label: "Over",  count: ouStats.over,  pct: ouStats.overPct,  color: "#e53935" },
           ].map(({ label, count, pct, color }) => (
             <div key={label}>
               <div className="flex items-baseline gap-1.5">
@@ -516,22 +617,21 @@ export default function WideEyePage() {
           ))}
         </div>
 
-        {/* Recent U/=/O row */}
         {recentUO.length > 0 && (
           <div>
             <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1.5">
               Recent U/=/O
             </div>
             <div className="flex flex-wrap gap-1">
-              {recentUO.map((label, i) => (
+              {recentUO.map((lbl, i) => (
                 <div
                   key={i}
                   className="w-6 h-6 rounded-full flex items-center justify-center font-orbitron text-[10px] font-bold text-white"
                   style={{
-                    background: label === "U" ? "#3498db" : label === "=" ? "#555" : "#e74c3c",
+                    background: lbl === "U" ? "#1e88e5" : lbl === "=" ? "#546e7a" : "#e53935",
                   }}
                 >
-                  {label}
+                  {lbl}
                 </div>
               ))}
             </div>
