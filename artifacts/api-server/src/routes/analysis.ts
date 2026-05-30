@@ -140,6 +140,9 @@ router.get("/wide-eye-analysis", async (req, res): Promise<void> => {
       current_digit: currentDigit,
     };
 
+    // Rolling digits array for live stream view
+    const rolling = digitsList.slice(-customCount);
+
     res.json({
       symbol,
       d_circle_1000: dCircle1000,
@@ -148,6 +151,8 @@ router.get("/wide-eye-analysis", async (req, res): Promise<void> => {
       over_under: overUnder,
       even_odd: evenOdd,
       current_price: currentPrice,
+      rolling_digits: rolling,
+      digits_1000: digitsList,
     });
   } catch (err) {
     req.log.error({ err, symbol }, "wide-eye-analysis error");

@@ -1,407 +1,544 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   useGetWideEyeAnalysis,
   getGetWideEyeAnalysisQueryKey,
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
+import { Eye } from "lucide-react";
 
 const DIGIT_COLORS: Record<number, string> = {
-  0: "#00e5d4", 1: "#448aff", 2: "#ce93d8", 3: "#00c853", 4: "#ff9100",
-  5: "#00e5ff", 6: "#c6ff00", 7: "#ff1744", 8: "#f50057", 9: "#ffd600",
+  0: "#e74c3c", 1: "#3498db", 2: "#1abc9c", 3: "#2ecc71", 4: "#3498db",
+  5: "#e67e22", 6: "#e67e22", 7: "#e74c3c", 8: "#9b59b6", 9: "#f39c12",
 };
 
-interface DigitStat { digit: number; percentage: number; rank: number; count: number; }
+// Reference-style palette — brighter, more colorful
+const BRIGHT_COLORS: Record<number, string> = {
+  0: "#e74c3c",  // red
+  1: "#3498db",  // blue
+  2: "#1abc9c",  // teal
+  3: "#2ecc71",  // green
+  4: "#3498db",  // blue
+  5: "#e67e22",  // orange
+  6: "#e67e22",  // orange/yellow
+  7: "#e74c3c",  // red
+  8: "#9b59b6",  // purple
+  9: "#f39c12",  // yellow
+};
 
-function DigitCircle({
-  stat,
-  isCurrent,
-  isHighest,
-  isLowest,
-  totalCount,
-}: {
-  stat: DigitStat;
-  isCurrent: boolean;
-  isHighest: boolean;
-  isLowest: boolean;
-  totalCount: number;
-}) {
-  const color = DIGIT_COLORS[stat.digit];
-  const filled = isHighest || isLowest || isCurrent;
+const TICK_PRESETS = [100, 120, 200, 300, 500];
 
-  return (
-    <div className="flex flex-col items-center gap-1 flex-1 min-w-0" data-testid={`digit-circle-${stat.digit}`}>
-      {/* Pointer triangle above current digit */}
-      <div className="h-4 flex items-end justify-center">
-        {isCurrent && (
-          <div
-            className="w-0 h-0"
-            style={{
-              borderLeft: "6px solid transparent",
-              borderRight: "6px solid transparent",
-              borderTop: `8px solid ${color}`,
-            }}
-          />
-        )}
-      </div>
-
-      {/* Circle */}
-      <div
-        className="relative flex items-center justify-center rounded-full transition-all duration-300"
-        style={{
-          width: "clamp(40px, 8vw, 72px)",
-          height: "clamp(40px, 8vw, 72px)",
-          background: filled ? `${color}22` : "rgba(255,255,255,0.04)",
-          border: `2px solid ${filled ? color : "rgba(255,255,255,0.12)"}`,
-          boxShadow: filled ? `0 0 16px ${color}55, inset 0 0 12px ${color}18` : undefined,
-        }}
-      >
-        <span
-          className="font-orbitron font-black"
-          style={{
-            fontSize: "clamp(14px, 3vw, 24px)",
-            color: filled ? color : "#888",
-          }}
-        >
-          {stat.digit}
-        </span>
-        {isCurrent && (
-          <div
-            className="absolute -top-1 -right-1 w-3 h-3 rounded-full animate-ping"
-            style={{ background: color, opacity: 0.6 }}
-          />
-        )}
-      </div>
-
-      {/* Percentage */}
-      <div
-        className="font-orbitron font-bold text-center"
-        style={{
-          fontSize: "clamp(10px, 2vw, 13px)",
-          color: filled ? color : "#666",
-        }}
-      >
-        {stat.percentage.toFixed(1)}%
-      </div>
-
-      {/* Count */}
-      <div className="font-rajdhani text-muted-foreground text-center" style={{ fontSize: "10px" }}>
-        {stat.count}
-      </div>
-    </div>
-  );
-}
-
-function DistributionRow({
-  digits,
-  currentDigit,
-  label,
-  count,
-}: {
-  digits: DigitStat[];
-  currentDigit: number;
-  label: string;
+interface DigitStat {
+  digit: number;
+  percentage: number;
+  rank: number;
   count: number;
-}) {
-  const sorted = [...digits].sort((a, b) => b.percentage - a.percentage);
-  const highest = sorted[0]?.digit ?? -1;
-  const lowest = sorted[sorted.length - 1]?.digit ?? -1;
-
-  return (
-    <div className="cyber-card p-4 md:p-6 scanlines">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="font-rajdhani font-semibold text-sm text-muted-foreground tracking-widest uppercase">
-          {label}
-        </div>
-        <div className="font-orbitron text-xs text-primary/80 tracking-widest">
-          {count}/{count}
-        </div>
-      </div>
-
-      {/* Digit circles */}
-      <div className="flex gap-1 md:gap-2 w-full">
-        {Array.from({ length: 10 }, (_, i) => i).map((d) => {
-          const stat = digits.find((x) => x.digit === d) ?? { digit: d, percentage: 0, rank: d + 1, count: 0 };
-          return (
-            <DigitCircle
-              key={d}
-              stat={stat}
-              isCurrent={d === currentDigit}
-              isHighest={d === highest}
-              isLowest={d === lowest}
-              totalCount={count}
-            />
-          );
-        })}
-      </div>
-
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-6 mt-3 text-xs font-rajdhani text-muted-foreground">
-        <span>
-          <span className="text-green-400 font-semibold">● </span>current digit / most frequent
-        </span>
-        <span>
-          <span className="text-orange-400 font-semibold">● </span>least frequency
-        </span>
-      </div>
-
-      {/* Ranked badges */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
-        {[
-          { label: "🔥 Hottest", digit: highest, rank: 1 },
-          { label: "🔵 2nd High", digit: sorted[1]?.digit ?? -1, rank: 2 },
-          { label: "🟡 2nd Low", digit: sorted[sorted.length - 2]?.digit ?? -1, rank: 9 },
-          { label: "❄️ Coldest", digit: lowest, rank: 10 },
-        ].map(({ label: lbl, digit, rank }) => {
-          const color = DIGIT_COLORS[digit] ?? "#888";
-          const stat = digits.find((x) => x.digit === digit);
-          return (
-            <div
-              key={rank}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-              style={{ background: `${color}12`, border: `1px solid ${color}30` }}
-            >
-              <span className="font-rajdhani text-xs text-muted-foreground">{lbl}:</span>
-              <span className="font-orbitron font-bold text-sm" style={{ color }}>
-                {digit >= 0 ? digit : "—"}
-              </span>
-              <span className="font-rajdhani text-xs text-muted-foreground ml-auto">
-                {stat?.percentage.toFixed(1) ?? "—"}%
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
+
+const MARKET_GROUPS = [
+  { label: "Volatility", symbols: [
+    { key: "R_10", label: "Vol 10" }, { key: "R_25", label: "Vol 25" },
+    { key: "R_50", label: "Vol 50" }, { key: "R_75", label: "Vol 75" },
+    { key: "R_100", label: "Vol 100" }, { key: "1HZ10V", label: "1s V10" },
+    { key: "1HZ25V", label: "1s V25" }, { key: "1HZ50V", label: "1s V50" },
+    { key: "1HZ75V", label: "1s V75" }, { key: "1HZ100V", label: "1s V100" },
+  ]},
+  { label: "Crash/Boom", symbols: [
+    { key: "CRASH300N", label: "Crash 300" }, { key: "CRASH500", label: "Crash 500" },
+    { key: "CRASH1000", label: "Crash 1000" }, { key: "BOOM300N", label: "Boom 300" },
+    { key: "BOOM500", label: "Boom 500" }, { key: "BOOM1000", label: "Boom 1000" },
+  ]},
+  { label: "Jump", symbols: [
+    { key: "JD10", label: "Jump 10" }, { key: "JD25", label: "Jump 25" },
+    { key: "JD50", label: "Jump 50" }, { key: "JD75", label: "Jump 75" },
+    { key: "JD100", label: "Jump 100" },
+  ]},
+];
 
 export default function WideEyePage() {
-  const { symbol } = useSymbol();
-  const [customCount, setCustomCount] = useState(1000);
-  const [inputVal, setInputVal] = useState("1000");
+  const { symbol, setSymbol } = useSymbol();
+  const [tickCount, setTickCount] = useState(100);
+  const [customInput, setCustomInput] = useState("100");
+  const [ouThreshold, setOuThreshold] = useState(5);
 
   const { data, isLoading } = useGetWideEyeAnalysis(
-    { symbol, count: customCount },
+    { symbol, count: tickCount },
     {
       query: {
         enabled: !!symbol,
-        queryKey: getGetWideEyeAnalysisQueryKey({ symbol, count: customCount }),
+        queryKey: getGetWideEyeAnalysisQueryKey({ symbol, count: tickCount }),
         refetchInterval: 2000,
       },
     }
   );
 
   const d = data as Record<string, unknown> | undefined;
-  const circle1 = (d?.d_circle_1000 as { digits?: DigitStat[]; current_digit?: number; current_price?: number; count?: number }) ?? {};
   const circleCustom = (d?.d_circle_custom as { digits?: DigitStat[]; current_digit?: number; current_price?: number; count?: number }) ?? {};
-  const overUnder = (d?.over_under as { under_pct?: number; over_pct?: number; equal_pct?: number }) ?? {};
-  const evenOdd = (d?.even_odd as { even_pct?: number; odd_pct?: number; current_digit?: number }) ?? {};
+  const rollingDigits: number[] = (d?.rolling_digits as number[]) ?? [];
+  const evenOdd = (d?.even_odd as { even_count?: number; odd_count?: number; even_pct?: number; odd_pct?: number; current_digit?: number }) ?? {};
+  const currentPrice = (d?.current_price as number) ?? 0;
 
-  const digits1000: DigitStat[] = circle1.digits ?? Array.from({ length: 10 }, (_, i) => ({ digit: i, percentage: 10, rank: i + 1, count: 0 }));
-  const digitsCustom: DigitStat[] = circleCustom.digits ?? Array.from({ length: 10 }, (_, i) => ({ digit: i, percentage: 10, rank: i + 1, count: 0 }));
-  const currentDigit = circle1.current_digit ?? 0;
-  const currentPrice = circle1.current_price ?? 0;
+  const digits: DigitStat[] = circleCustom.digits ?? Array.from({ length: 10 }, (_, i) => ({ digit: i, percentage: 10, rank: i + 1, count: 0 }));
+  const currentDigit = circleCustom.current_digit ?? 0;
 
-  function applyCount() {
-    const v = parseInt(inputVal);
-    if (!isNaN(v) && v >= 50 && v <= 5000) setCustomCount(v);
-  }
+  const sortedDigits = useMemo(() => [...digits].sort((a, b) => b.percentage - a.percentage), [digits]);
+  const mostFrequent = sortedDigits[0]?.digit ?? -1;
+  const leastFrequent = sortedDigits[sortedDigits.length - 1]?.digit ?? -1;
+
+  // Over/under with adjustable threshold
+  const ouStats = useMemo(() => {
+    if (!rollingDigits.length) return { under: 0, equal: 0, over: 0, underPct: 0, equalPct: 0, overPct: 0 };
+    const n = rollingDigits.length;
+    const under = rollingDigits.filter((d) => d < ouThreshold).length;
+    const equal = rollingDigits.filter((d) => d === ouThreshold).length;
+    const over = rollingDigits.filter((d) => d > ouThreshold).length;
+    return {
+      under, equal, over,
+      underPct: parseFloat(((under / n) * 100).toFixed(1)),
+      equalPct: parseFloat(((equal / n) * 100).toFixed(1)),
+      overPct: parseFloat(((over / n) * 100).toFixed(1)),
+    };
+  }, [rollingDigits, ouThreshold]);
+
+  // Recent E/O and U/O from rolling digits
+  const recentEO = useMemo(() => rollingDigits.slice(-25).map((d) => ([0, 2, 4, 6, 8].includes(d) ? "E" : "O")), [rollingDigits]);
+  const recentUO = useMemo(() => rollingDigits.slice(-25).map((d) => d < ouThreshold ? "U" : d === ouThreshold ? "=" : "O"), [rollingDigits, ouThreshold]);
+
+  // Current group label for dropdown display
+  const allGroups = MARKET_GROUPS;
+  const currentGroup = allGroups.find((g) => g.symbols.find((s) => s.key === symbol));
+  const currentLabel = currentGroup?.symbols.find((s) => s.key === symbol)?.label ?? symbol;
 
   return (
-    <div className="space-y-5 animate-fade-in-up" data-testid="page-wide-eye">
-      {/* Header row — price + digit */}
-      <div
-        className="cyber-card px-4 py-3 flex items-center justify-between"
-        style={{ background: "rgba(0,229,255,0.04)", borderColor: "rgba(0,229,255,0.15)" }}
-      >
-        <div className="font-orbitron text-2xl md:text-3xl font-bold text-foreground tracking-wider">
-          {currentPrice.toFixed(4)}
+    <div className="space-y-3 animate-fade-in-up" data-testid="page-wide-eye">
+
+      {/* ─── Title row ─── */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <Eye size={18} className="text-primary" />
+            <h2 className="font-bold text-foreground text-lg" style={{ fontFamily: "inherit" }}>
+              Wide Eye View
+            </h2>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5" style={{ fontFamily: "Space Grotesk, sans-serif" }}>
+            {tickCount} tick real-time digit analysis with live triangle indicator
+          </p>
         </div>
         <div
-          className="font-orbitron text-3xl font-black"
-          style={{ color: DIGIT_COLORS[currentDigit] }}
-          data-testid="current-digit-display"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold flex-shrink-0"
+          style={{ background: "rgba(0,200,83,0.15)", border: "1px solid rgba(0,200,83,0.4)", color: "#00c853" }}
         >
-          {currentDigit}
+          <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+          Live
         </div>
       </div>
 
-      {/* Ticks window control */}
-      <div className="cyber-card px-4 py-3 flex flex-wrap items-center gap-4">
-        <span className="font-rajdhani font-semibold text-sm text-muted-foreground tracking-wide">
-          Ticks window:
-        </span>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min={50}
-            max={5000}
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            onBlur={applyCount}
-            onKeyDown={(e) => e.key === "Enter" && applyCount()}
-            className="w-24 px-3 py-1.5 rounded-md bg-background border border-border font-orbitron text-sm text-foreground focus:outline-none focus:border-primary"
-            data-testid="input-ticks-window"
-          />
-          <span className="font-rajdhani text-xs text-muted-foreground">(50–5000)</span>
-        </div>
-        {isLoading && (
-          <div className="ml-auto flex items-center gap-2">
-            <div className="w-3 h-3 border border-primary/40 border-t-primary rounded-full animate-spin" />
-            <span className="font-rajdhani text-xs text-muted-foreground">Loading…</span>
+      {/* ─── Controls + Price ─── */}
+      <div className="cyber-card p-3 md:p-4">
+        <div className="flex flex-wrap gap-3 items-center">
+          {/* SELECT MARKET */}
+          <div className="flex flex-col gap-1 min-w-[140px]">
+            <label className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase">
+              Select Market
+            </label>
+            <select
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value)}
+              className="px-3 py-2 rounded-md font-rajdhani text-sm font-semibold bg-background border border-border text-foreground focus:outline-none focus:border-primary appearance-none cursor-pointer"
+              style={{ minWidth: "140px" }}
+              data-testid="select-market"
+            >
+              {allGroups.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.symbols.map((s) => (
+                    <option key={s.key} value={s.key}>{s.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
           </div>
-        )}
-        <div className="ml-auto font-orbitron text-xs text-primary/60">
-          {customCount}/{customCount}
+
+          {/* TICK WINDOW */}
+          <div className="flex flex-col gap-1">
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase">
+              Tick Window — <span className="text-primary font-bold">{tickCount} Ticks</span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {TICK_PRESETS.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => { setTickCount(p); setCustomInput(String(p)); }}
+                  className="px-3 py-1.5 rounded text-xs font-orbitron font-bold transition-all"
+                  style={
+                    tickCount === p
+                      ? { background: "#00e5ff", color: "#050a0f" }
+                      : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", color: "#aaa" }
+                  }
+                >
+                  {p}
+                </button>
+              ))}
+              <input
+                type="number"
+                min={50}
+                max={1000}
+                value={customInput}
+                onChange={(e) => setCustomInput(e.target.value)}
+                onBlur={() => {
+                  const v = parseInt(customInput);
+                  if (!isNaN(v) && v >= 50 && v <= 1000) setTickCount(v);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const v = parseInt(customInput);
+                    if (!isNaN(v) && v >= 50 && v <= 1000) setTickCount(v);
+                  }
+                }}
+                className="w-20 px-2 py-1.5 rounded text-xs font-orbitron bg-background border border-border text-foreground focus:outline-none focus:border-primary"
+                placeholder="custom"
+                data-testid="input-tick-count"
+              />
+              <span className="text-xs text-muted-foreground font-rajdhani">custom (50–1000)</span>
+            </div>
+          </div>
+
+          {/* Price + current digit */}
+          <div className="ml-auto flex items-center gap-4 flex-shrink-0">
+            <span className="font-orbitron text-xl md:text-2xl font-bold text-foreground">
+              {currentPrice ? currentPrice.toFixed(currentPrice > 100 ? 2 : 4) : "—"}
+            </span>
+            {isLoading ? (
+              <div className="w-10 h-10 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+            ) : (
+              <div
+                className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-orbitron text-lg font-black shadow-lg"
+                style={{
+                  background: BRIGHT_COLORS[currentDigit] ?? "#aaa",
+                  boxShadow: `0 0 16px ${BRIGHT_COLORS[currentDigit] ?? "#aaa"}80`,
+                  color: "#fff",
+                }}
+              >
+                {currentDigit}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 1000-tick distribution row */}
-      <DistributionRow
-        digits={digits1000}
-        currentDigit={currentDigit}
-        label={`Last 1000 ticks digit distribution`}
-        count={circle1.count ?? 1000}
-      />
-
-      {/* Custom tick distribution */}
-      {customCount !== 1000 && (
-        <DistributionRow
-          digits={digitsCustom}
-          currentDigit={circleCustom.current_digit ?? currentDigit}
-          label={`Last ${customCount} ticks digit distribution`}
-          count={circleCustom.count ?? customCount}
-        />
-      )}
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Over/Under */}
-        <div className="cyber-card p-4">
-          <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase mb-3">
-            Over / Under Summary · Threshold 5
-          </div>
-          <div className="space-y-2">
-            {[
-              { label: "OVER", value: overUnder.over_pct ?? 0, color: "#00c853" },
-              { label: "UNDER", value: overUnder.under_pct ?? 0, color: "#448aff" },
-              { label: "EQUAL (5)", value: overUnder.equal_pct ?? 0, color: "#ffd600" },
-            ].map(({ label, value, color }) => (
-              <div key={label}>
-                <div className="flex justify-between text-xs mb-1 font-rajdhani">
-                  <span className="font-semibold" style={{ color }}>{label}</span>
-                  <span className="font-orbitron" style={{ color }}>{value}%</span>
-                </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{ width: `${value}%`, background: color }}
-                  />
-                </div>
+      {/* ─── Live Digit Indicator ─── */}
+      <div className="cyber-card p-3 md:p-4">
+        <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase mb-4">
+          Live Digit Indicator
+        </div>
+        <div className="relative px-2">
+          {/* Labels 0–9 */}
+          <div className="flex justify-between mb-1">
+            {Array.from({ length: 10 }, (_, i) => (
+              <div key={i} className="flex-1 flex justify-center">
+                <span
+                  className="font-orbitron text-xs font-bold"
+                  style={{ color: BRIGHT_COLORS[i] }}
+                >
+                  {i}
+                </span>
               </div>
             ))}
           </div>
+
+          {/* The indicator bar */}
+          <div className="relative h-2 rounded-full overflow-hidden" style={{
+            background: "linear-gradient(to right, #e74c3c, #3498db, #1abc9c, #2ecc71, #3498db, #e67e22, #e67e22, #e74c3c, #9b59b6, #f39c12)"
+          }}>
+            {/* Dot positions */}
+            {Array.from({ length: 10 }, (_, i) => (
+              <div
+                key={i}
+                className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-background transition-all duration-300"
+                style={{
+                  left: `calc(${(i / 9) * 100}% - 5px)`,
+                  background: BRIGHT_COLORS[i],
+                  transform: i === currentDigit ? "translateY(-50%) scale(1.4)" : "translateY(-50%)",
+                  boxShadow: i === currentDigit ? `0 0 10px ${BRIGHT_COLORS[i]}` : undefined,
+                  zIndex: i === currentDigit ? 10 : 1,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Triangle pointer above current digit */}
+          <div
+            className="absolute -top-0.5 transition-all duration-300"
+            style={{
+              left: `calc(${(currentDigit / 9) * 100}% + 8px - 6px)`,
+              transform: "translateX(-50%)",
+            }}
+          >
+            <div
+              className="w-0 h-0"
+              style={{
+                borderLeft: "5px solid transparent",
+                borderRight: "5px solid transparent",
+                borderTop: `7px solid ${BRIGHT_COLORS[currentDigit]}`,
+              }}
+            />
+          </div>
+
+          {/* Current digit bubble below */}
+          <div
+            className="mt-4 mx-auto w-14 h-14 rounded-full flex items-center justify-center font-orbitron text-2xl font-black shadow-xl transition-all duration-300"
+            style={{
+              background: BRIGHT_COLORS[currentDigit],
+              boxShadow: `0 0 24px ${BRIGHT_COLORS[currentDigit]}80`,
+              color: "#fff",
+              marginLeft: `calc(${(currentDigit / 9) * 100}% - 28px + 8px)`,
+            }}
+          >
+            {currentDigit}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Rolling Tick Stream ─── */}
+      <div className="cyber-card p-3 md:p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase">
+            Rolling {tickCount}-Tick Stream
+          </div>
+          <div className="flex items-center gap-1.5 text-xs font-rajdhani text-green-400">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            live rolling window
+          </div>
         </div>
 
-        {/* Even/Odd */}
-        <div className="cyber-card p-4">
-          <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase mb-3">
-            Even / Odd Summary
+        {rollingDigits.length === 0 ? (
+          <div className="flex items-center justify-center h-16 text-muted-foreground font-rajdhani text-sm">
+            Loading tick stream…
           </div>
-          <div className="flex items-center gap-4">
-            <div
-              className="flex-shrink-0 w-16 h-16 rounded-xl border-2 flex items-center justify-center"
-              style={{
-                borderColor: DIGIT_COLORS[evenOdd.current_digit ?? currentDigit],
-                background: `${DIGIT_COLORS[evenOdd.current_digit ?? currentDigit]}18`,
-              }}
-            >
-              <span className="font-orbitron text-3xl font-black" style={{ color: DIGIT_COLORS[evenOdd.current_digit ?? currentDigit] }}>
-                {evenOdd.current_digit ?? currentDigit}
-              </span>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {rollingDigits.map((d, i) => {
+              const isLatest = i === rollingDigits.length - 1;
+              const color = BRIGHT_COLORS[d];
+              return (
+                <div
+                  key={i}
+                  className="flex items-center justify-center rounded-full font-orbitron font-bold text-white flex-shrink-0 transition-all"
+                  style={{
+                    width: isLatest ? "28px" : "22px",
+                    height: isLatest ? "28px" : "22px",
+                    fontSize: isLatest ? "13px" : "10px",
+                    background: color,
+                    boxShadow: isLatest ? `0 0 10px ${color}90` : undefined,
+                    border: isLatest ? "2px solid #fff" : undefined,
+                  }}
+                >
+                  {d}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-4 mt-3 text-[10px] font-rajdhani text-muted-foreground">
+          <span>▼ = latest digit</span>
+          <span>· color = digit value (0 red → 9 yellow)</span>
+          <span>· empty = awaiting ticks</span>
+        </div>
+      </div>
+
+      {/* ─── Last N Ticks Digit Distribution ─── */}
+      <div className="cyber-card p-3 md:p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase">
+            Last {tickCount} Ticks Digit Distribution
+          </div>
+          <div className="flex items-center gap-3 text-[10px] font-rajdhani">
+            <span className="text-green-400 font-semibold">▲ = most frequent</span>
+            <span className="text-red-400 font-semibold">▼ = least frequent</span>
+          </div>
+        </div>
+
+        <div className="flex gap-2 md:gap-4 flex-wrap justify-between">
+          {Array.from({ length: 10 }, (_, i) => i).map((d) => {
+            const stat = digits.find((x) => x.digit === d) ?? { digit: d, percentage: 0, rank: d + 1, count: 0 };
+            const color = BRIGHT_COLORS[d];
+            const isMost = d === mostFrequent;
+            const isLeast = d === leastFrequent;
+            const isCurrent = d === currentDigit;
+
+            return (
+              <div key={d} className="flex flex-col items-center gap-1 flex-1 min-w-[48px]" data-testid={`dist-digit-${d}`}>
+                {/* Arrow indicator */}
+                <div className="h-4 flex items-end justify-center">
+                  {isMost && <span className="text-green-400 text-sm font-bold">▲</span>}
+                  {isLeast && <span className="text-red-400 text-sm font-bold">▼</span>}
+                </div>
+
+                {/* Circle */}
+                <div
+                  className="flex items-center justify-center rounded-full font-orbitron font-black text-white transition-all duration-300"
+                  style={{
+                    width: "clamp(40px, 8vw, 60px)",
+                    height: "clamp(40px, 8vw, 60px)",
+                    fontSize: "clamp(14px, 3vw, 22px)",
+                    background: color,
+                    boxShadow: isCurrent
+                      ? `0 0 20px ${color}90, 0 0 40px ${color}40`
+                      : `0 2px 8px ${color}50`,
+                    border: isCurrent ? "3px solid #fff" : undefined,
+                    transform: isCurrent ? "scale(1.12)" : undefined,
+                  }}
+                >
+                  {d}
+                </div>
+
+                {/* Percentage */}
+                <div className="font-orbitron font-bold text-center" style={{ fontSize: "11px", color }}>
+                  {stat.percentage.toFixed(1)}%
+                </div>
+
+                {/* Count */}
+                <div className="font-rajdhani text-muted-foreground text-center" style={{ fontSize: "10px" }}>
+                  {stat.count}
+                </div>
+
+                {/* Bar */}
+                <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${stat.percentage * 10}%`, background: color }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Current/most/least legend */}
+        <div className="mt-3 font-rajdhani text-xs text-muted-foreground">
+          current digit /{" "}
+          <span className="text-green-400">most frequent = {mostFrequent} ({digits.find((x) => x.digit === mostFrequent)?.percentage.toFixed(1)}%)</span>
+          {" / "}
+          <span className="text-red-400">least frequent = {leastFrequent} ({digits.find((x) => x.digit === leastFrequent)?.percentage.toFixed(1)}%)</span>
+        </div>
+      </div>
+
+      {/* ─── Even / Odd ─── */}
+      <div className="cyber-card p-3 md:p-4">
+        <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase mb-3">
+          Even / Odd
+        </div>
+        <div className="grid grid-cols-2 gap-4 mb-3">
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span className="font-bold text-lg text-green-400" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Even</span>
+              <span className="font-orbitron text-2xl font-bold text-foreground">{evenOdd.even_count ?? 0}</span>
+              <span className="font-rajdhani text-sm text-muted-foreground">({evenOdd.even_pct ?? 50}%)</span>
             </div>
-            <div className="flex-1 space-y-2">
-              {[
-                { label: "EVEN", value: evenOdd.even_pct ?? 50, color: "#c6ff00" },
-                { label: "ODD", value: evenOdd.odd_pct ?? 50, color: "#ff9100" },
-              ].map(({ label, value, color }) => (
-                <div key={label}>
-                  <div className="flex justify-between text-xs mb-1 font-rajdhani">
-                    <span className="font-semibold" style={{ color }}>{label}</span>
-                    <span className="font-orbitron text-xs" style={{ color }}>{value}%</span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${value}%`, background: color }} />
-                  </div>
+            <div className="h-1.5 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <div className="h-full rounded-full bg-green-400 transition-all duration-700" style={{ width: `${evenOdd.even_pct ?? 50}%` }} />
+            </div>
+          </div>
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span className="font-bold text-lg text-red-400" style={{ fontFamily: "Space Grotesk, sans-serif" }}>Odd</span>
+              <span className="font-orbitron text-2xl font-bold text-foreground">{evenOdd.odd_count ?? 0}</span>
+              <span className="font-rajdhani text-sm text-muted-foreground">({evenOdd.odd_pct ?? 50}%)</span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <div className="h-full rounded-full bg-red-400 transition-all duration-700" style={{ width: `${evenOdd.odd_pct ?? 50}%` }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Recent E/O row */}
+        {recentEO.length > 0 && (
+          <div>
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1.5">
+              Recent E/O
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {recentEO.map((label, i) => (
+                <div
+                  key={i}
+                  className="w-6 h-6 rounded-full flex items-center justify-center font-orbitron text-[10px] font-bold text-white"
+                  style={{ background: label === "E" ? "#2ecc71" : "#e74c3c" }}
+                >
+                  {label}
                 </div>
               ))}
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Full distribution table */}
-      <div className="cyber-card p-4">
-        <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase mb-3">
-          Full Distribution Table · {customCount} Ticks
+      {/* ─── Over / Under ─── */}
+      <div className="cyber-card p-3 md:p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase">
+            Over / Under
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-rajdhani text-xs text-muted-foreground">Threshold:</span>
+            <select
+              value={ouThreshold}
+              onChange={(e) => setOuThreshold(parseInt(e.target.value))}
+              className="px-2 py-1 rounded bg-background border border-border text-primary font-orbitron text-xs focus:outline-none focus:border-primary cursor-pointer"
+              data-testid="select-ou-threshold"
+            >
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[400px]">
-            <thead>
-              <tr className="border-b border-border">
-                {["Digit", "Count", "Frequency", "Rank", "Status"].map((h) => (
-                  <th key={h} className="text-left pb-2 font-rajdhani text-xs tracking-wider text-muted-foreground font-semibold">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: 10 }, (_, i) => i).map((d) => {
-                const stat = digitsCustom.find((x) => x.digit === d);
-                const color = DIGIT_COLORS[d];
-                const rank = stat?.rank ?? d + 1;
-                const isCurr = d === currentDigit;
-                return (
-                  <tr
-                    key={d}
-                    className="border-b border-border/30 hover:bg-muted/20 transition-colors"
-                    style={isCurr ? { background: `${color}08` } : undefined}
-                  >
-                    <td className="py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-orbitron font-bold text-lg" style={{ color }}>{d}</span>
-                        {isCurr && <span className="text-[10px] font-rajdhani text-primary font-bold tracking-widest">← NOW</span>}
-                      </div>
-                    </td>
-                    <td className="py-2 font-rajdhani text-foreground/70">{stat?.count ?? 0}</td>
-                    <td className="py-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-20 md:w-32 h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${(stat?.percentage ?? 10) * 10}%`, background: color }} />
-                        </div>
-                        <span className="font-orbitron text-xs" style={{ color }}>{stat?.percentage?.toFixed(2) ?? "10.00"}%</span>
-                      </div>
-                    </td>
-                    <td className="py-2">
-                      <span className={`font-orbitron text-xs ${rank === 1 ? "text-green-400" : rank === 10 ? "text-red-400" : "text-muted-foreground"}`}>
-                        #{rank}
-                      </span>
-                    </td>
-                    <td className="py-2">
-                      {rank === 1 && <span className="risk-low">HOTTEST</span>}
-                      {rank === 2 && <span className="badge-match rounded px-2 text-xs font-rajdhani font-bold">2ND HIGH</span>}
-                      {rank === 10 && <span className="risk-high">COLDEST</span>}
-                      {rank === 9 && <span className="badge-odd rounded px-2 text-xs font-rajdhani font-bold">2ND LOW</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          {[
+            { label: "Under", count: ouStats.under, pct: ouStats.underPct, color: "#3498db" },
+            { label: "Equal", count: ouStats.equal, pct: ouStats.equalPct, color: "#95a5a6" },
+            { label: "Over", count: ouStats.over, pct: ouStats.overPct, color: "#e74c3c" },
+          ].map(({ label, count, pct, color }) => (
+            <div key={label}>
+              <div className="flex items-baseline gap-1.5">
+                <span className="font-bold text-base" style={{ fontFamily: "Space Grotesk, sans-serif", color }}>
+                  {label}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="font-orbitron text-xl font-bold text-foreground">{count}</span>
+                <span className="font-rajdhani text-xs text-muted-foreground">({pct}%)</span>
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden mt-1" style={{ background: "rgba(255,255,255,0.08)" }}>
+                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
+              </div>
+            </div>
+          ))}
         </div>
+
+        {/* Recent U/=/O row */}
+        {recentUO.length > 0 && (
+          <div>
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1.5">
+              Recent U/=/O
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {recentUO.map((label, i) => (
+                <div
+                  key={i}
+                  className="w-6 h-6 rounded-full flex items-center justify-center font-orbitron text-[10px] font-bold text-white"
+                  style={{
+                    background: label === "U" ? "#3498db" : label === "=" ? "#555" : "#e74c3c",
+                  }}
+                >
+                  {label}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
+
     </div>
   );
 }
