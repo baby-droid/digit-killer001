@@ -1,0 +1,1 @@
+- [Deriv API auth](deriv-api-auth.md) — ticks_history and active_symbols are public; do NOT authorize for these calls.
