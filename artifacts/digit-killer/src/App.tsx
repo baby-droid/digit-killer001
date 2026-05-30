@@ -15,6 +15,7 @@ import TickAnalyserPage from "@/pages/TickAnalyserPage";
 import AiSignalsPage from "@/pages/AiSignalsPage";
 import SettingsPage from "@/pages/SettingsPage";
 import LoginPage from "@/pages/LoginPage";
+import ReportsPage from "@/pages/ReportsPage";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -55,6 +56,9 @@ function Router() {
       </Route>
       <Route path="/ai-signals">
         <WithLayout><AiSignalsPage /></WithLayout>
+      </Route>
+      <Route path="/reports">
+        <WithLayout><ReportsPage /></WithLayout>
       </Route>
       <Route path="/settings">
         <WithLayout><SettingsPage /></WithLayout>
