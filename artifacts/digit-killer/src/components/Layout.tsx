@@ -4,9 +4,10 @@ import { useSymbol } from "@/context/SymbolContext";
 import { useGetActiveSymbols } from "@workspace/api-client-react";
 import logoPath from "@assets/WhatsApp_Image_2026-05-30_at_19.05.28_1780157146139.jpeg";
 import {
-  LayoutDashboard, Eye, TrendingUp, Divide, Shuffle,
+  LayoutDashboard, Eye, TrendingUp, TrendingDown, Divide, Shuffle,
   BarChart2, Zap, Settings, ChevronLeft, ChevronRight,
   Radio, LogIn, FileBarChart, Menu, X, ChevronDown, LogOut,
+  ArrowUp, ArrowDown, ArrowUpDown,
 } from "lucide-react";
 
 const MARKET_GROUPS = [
@@ -40,13 +41,6 @@ const MARKET_GROUPS = [
     ],
   },
   {
-    label: "Daily Reset",
-    symbols: [
-      { key: "RDBEAR", label: "Bear Market" },
-      { key: "RDBULL", label: "Bull Market" },
-    ],
-  },
-  {
     label: "Jump",
     symbols: [
       { key: "JD10",  label: "Jump 10" },
@@ -56,17 +50,40 @@ const MARKET_GROUPS = [
       { key: "JD100", label: "Jump 100" },
     ],
   },
+  {
+    label: "Step/Range",
+    symbols: [
+      { key: "STPINDXV",   label: "Step Index" },
+      { key: "RB_100U",    label: "Range Brk 100" },
+      { key: "RB_200U",    label: "Range Brk 200" },
+      { key: "RDBEAR",     label: "Bear Market" },
+      { key: "RDBULL",     label: "Bull Market" },
+    ],
+  },
+  {
+    label: "DEX",
+    symbols: [
+      { key: "WLDAUD",  label: "DEX AUD" },
+      { key: "WLDEUR",  label: "DEX EUR" },
+      { key: "WLDGBP",  label: "DEX GBP" },
+      { key: "WLDUSD",  label: "DEX USD" },
+      { key: "WLDXAU",  label: "DEX Gold" },
+    ],
+  },
 ];
 
 const NAV_ITEMS = [
-  { path: "/dashboard",     label: "Dashboard",    icon: LayoutDashboard },
-  { path: "/wide-eye",      label: "Wide Eye",     icon: Eye },
-  { path: "/over-under",    label: "Over / Under", icon: TrendingUp },
-  { path: "/even-odd",      label: "Even / Odd",   icon: Divide },
+  { path: "/dashboard",     label: "Dashboard",      icon: LayoutDashboard },
+  { path: "/wide-eye",      label: "Wide Eye",       icon: Eye },
+  { path: "/over-under",    label: "Over / Under",   icon: TrendingUp },
+  { path: "/even-odd",      label: "Even / Odd",     icon: Divide },
   { path: "/match-differ",  label: "Match / Differ", icon: Shuffle },
-  { path: "/tick-analyser", label: "Tick Analyser", icon: BarChart2 },
-  { path: "/ai-signals",    label: "AI Signals",   icon: Zap },
-  { path: "/reports",       label: "ML Reports",   icon: FileBarChart },
+  { path: "/tick-analyser", label: "Tick Analyser",  icon: BarChart2 },
+  { path: "/rise-fall",     label: "Rise / Fall",    icon: TrendingUp },
+  { path: "/only-up-down",  label: "Only Up/Down",   icon: ArrowUpDown },
+  { path: "/high-low-tick", label: "High/Low Tick",  icon: ArrowUpDown },
+  { path: "/ai-signals",    label: "AI Signals",     icon: Zap },
+  { path: "/reports",       label: "ML Reports",     icon: FileBarChart },
 ];
 
 // ─── Symbol dropdown uses FIXED positioning to escape any stacking context ──

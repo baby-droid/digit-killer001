@@ -12,6 +12,9 @@ import OverUnderPage from "@/pages/OverUnderPage";
 import EvenOddPage from "@/pages/EvenOddPage";
 import MatchDifferPage from "@/pages/MatchDifferPage";
 import TickAnalyserPage from "@/pages/TickAnalyserPage";
+import RiseFallPage from "@/pages/RiseFallPage";
+import OnlyUpDownPage from "@/pages/OnlyUpDownPage";
+import HighLowTickPage from "@/pages/HighLowTickPage";
 import AiSignalsPage from "@/pages/AiSignalsPage";
 import SettingsPage from "@/pages/SettingsPage";
 import ReportsPage from "@/pages/ReportsPage";
@@ -53,6 +56,9 @@ function Router() {
       <Route path="/even-odd"><Protected><EvenOddPage /></Protected></Route>
       <Route path="/match-differ"><Protected><MatchDifferPage /></Protected></Route>
       <Route path="/tick-analyser"><Protected><TickAnalyserPage /></Protected></Route>
+      <Route path="/rise-fall"><Protected><RiseFallPage /></Protected></Route>
+      <Route path="/only-up-down"><Protected><OnlyUpDownPage /></Protected></Route>
+      <Route path="/high-low-tick"><Protected><HighLowTickPage /></Protected></Route>
       <Route path="/ai-signals"><Protected><AiSignalsPage /></Protected></Route>
       <Route path="/reports"><Protected><ReportsPage /></Protected></Route>
       <Route path="/settings"><Protected><SettingsPage /></Protected></Route>

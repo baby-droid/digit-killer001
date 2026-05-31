@@ -951,3 +951,282 @@ export function computeStrategySignal(
   }
   return handler();
 }
+
+// ────────────────────────────────────────────────────────────────
+//  Enhanced Tick Analysis — Rise/Fall · Only Up/Down · High/Low Tick
+//  Uses Markov (2-state), lag-1 autocorrelation, run-length stats
+// ────────────────────────────────────────────────────────────────
+export interface EnhancedTickAnalysis {
+  symbol: string;
+  current_price: number;
+  current_digit: number;
+  sample_size: number;
+  last_updated: string;
+  markov: {
+    current_state: string;
+    p_up_given_up: number;
+    p_down_given_up: number;
+    p_up_given_down: number;
+    p_down_given_down: number;
+    predicted: string;
+    confidence: number;
+  };
+  autocorrelation: { lag1: number; interpretation: string; signal: string };
+  trend: { direction: string; up_pct: number; down_pct: number; volatility: number };
+  rise_fall: {
+    rise: { signal: string; confidence: number; duration: number; reasons: string[]; risk_level: string };
+    fall: { signal: string; confidence: number; duration: number; reasons: string[]; risk_level: string };
+  };
+  only_up_down: {
+    current_direction: string;
+    current_streak: number;
+    avg_up_run: number;
+    avg_down_run: number;
+    prob_extend: number;
+    up_run_dist: Array<{ length: number; count: number; pct: number }>;
+    down_run_dist: Array<{ length: number; count: number; pct: number }>;
+    total_up_runs: number;
+    total_down_runs: number;
+    only_up: { signal: string; confidence: number; duration: number; reasons: string[]; risk_level: string };
+    only_down: { signal: string; confidence: number; duration: number; reasons: string[]; risk_level: string };
+  };
+  high_low_tick: {
+    high_tick_freq: Array<{ tick: number; count: number; pct: number }>;
+    low_tick_freq: Array<{ tick: number; count: number; pct: number }>;
+    best_high_tick: number;
+    best_low_tick: number;
+    worst_high_tick: number;
+    worst_low_tick: number;
+    total_windows: number;
+    high_tick: { signal: string; confidence: number; tick_position: number; frequency_pct: number; reasons: string[] };
+    low_tick: { signal: string; confidence: number; tick_position: number; frequency_pct: number; reasons: string[] };
+  };
+  recent_prices: number[];
+  price_changes: string[];
+}
+
+export function computeEnhancedTickAnalysis(
+  symbol: string,
+  prices: number[],
+  pipSize: number
+): EnhancedTickAnalysis {
+  const n = prices.length;
+  const currentPrice = prices[n - 1] ?? 0;
+  const currentDigit = extractLastDigit(currentPrice, pipSize);
+  const now = new Date().toISOString();
+
+  // ── 1. Direction sequence: 1=up, 0=down ──────────────────────
+  const directions: number[] = [];
+  for (let i = 1; i < n; i++) {
+    directions.push(prices[i] >= prices[i - 1] ? 1 : 0);
+  }
+
+  // ── 2. Markov 2-state transition matrix ──────────────────────
+  let uu = 0, ud = 0, du = 0, dd = 0;
+  for (let i = 1; i < directions.length; i++) {
+    const f = directions[i - 1], t = directions[i];
+    if (f === 1 && t === 1) uu++;
+    else if (f === 1 && t === 0) ud++;
+    else if (f === 0 && t === 1) du++;
+    else dd++;
+  }
+  const tU = uu + ud || 1, tD = du + dd || 1;
+  const pUU = (uu / tU) * 100, pDU = (ud / tU) * 100;
+  const pUD = (du / tD) * 100, pDD = (dd / tD) * 100;
+  const lastDir = directions[directions.length - 1] ?? 0;
+  const markovPred = lastDir === 1 ? (pUU >= 50 ? "UP" : "DOWN") : (pUD >= 50 ? "UP" : "DOWN");
+  const markovConf = lastDir === 1 ? Math.max(pUU, pDU) : Math.max(pUD, pDD);
+
+  // ── 3. Lag-1 autocorrelation ──────────────────────────────────
+  const dMean = directions.reduce((a, b) => a + b, 0) / (directions.length || 1);
+  const dVar = directions.reduce((a, b) => a + (b - dMean) ** 2, 0) / (directions.length || 1);
+  let cov1 = 0;
+  for (let i = 1; i < directions.length; i++) cov1 += (directions[i] - dMean) * (directions[i - 1] - dMean);
+  cov1 /= (directions.length - 1 || 1);
+  const r1 = dVar > 0 ? cov1 / dVar : 0;
+  const autocorrInterp = r1 > 0.05 ? "trending" : r1 < -0.05 ? "mean_reverting" : "random";
+  const autocorrSignal = autocorrInterp === "trending" ? "FOLLOW TREND" : autocorrInterp === "mean_reverting" ? "COUNTER TREND" : "NO EDGE";
+
+  // ── 4. Run-length analysis ────────────────────────────────────
+  type Run = { dir: number; length: number };
+  const runs: Run[] = [];
+  if (directions.length > 0) {
+    let rDir = directions[0], rLen = 1;
+    for (let i = 1; i < directions.length; i++) {
+      if (directions[i] === rDir) { rLen++; }
+      else { runs.push({ dir: rDir, length: rLen }); rDir = directions[i]; rLen = 1; }
+    }
+    runs.push({ dir: rDir, length: rLen });
+  }
+  const upRuns = runs.filter((r) => r.dir === 1).map((r) => r.length);
+  const downRuns = runs.filter((r) => r.dir === 0).map((r) => r.length);
+
+  const mkRunDist = (arr: number[]) =>
+    Array.from({ length: 10 }, (_, i) => {
+      const len = i + 1, cnt = arr.filter((l) => l === len).length;
+      return { length: len, count: cnt, pct: arr.length > 0 ? parseFloat(((cnt / arr.length) * 100).toFixed(1)) : 0 };
+    });
+
+  const avgUp = upRuns.length > 0 ? upRuns.reduce((a, b) => a + b, 0) / upRuns.length : 0;
+  const avgDn = downRuns.length > 0 ? downRuns.reduce((a, b) => a + b, 0) / downRuns.length : 0;
+
+  let streak = 1;
+  for (let i = directions.length - 2; i >= 0; i--) {
+    if (directions[i] === lastDir) streak++;
+    else break;
+  }
+  const relRuns = lastDir === 1 ? upRuns : downRuns;
+  const probExtend = relRuns.length > 0 ? (relRuns.filter((l) => l > streak).length / relRuns.length) * 100 : 50;
+
+  // ── 5. High/Low Tick position frequency (5-tick windows) ──────
+  const WS = 5;
+  const highCnt = new Array(WS).fill(0);
+  const lowCnt = new Array(WS).fill(0);
+  const totalWin = Math.floor((prices.length - 1) / WS);
+  for (let w = 0; w < totalWin; w++) {
+    const s = prices.length - 1 - (w + 1) * WS;
+    if (s < 0) break;
+    const win = prices.slice(s, s + WS);
+    const mx = Math.max(...win), mn = Math.min(...win);
+    highCnt[win.indexOf(mx)]++;
+    lowCnt[win.indexOf(mn)]++;
+  }
+  const hiFreq = highCnt.map((c, i) => ({ tick: i + 1, count: c, pct: totalWin > 0 ? parseFloat(((c / totalWin) * 100).toFixed(1)) : 0 }));
+  const loFreq = lowCnt.map((c, i) => ({ tick: i + 1, count: c, pct: totalWin > 0 ? parseFloat(((c / totalWin) * 100).toFixed(1)) : 0 }));
+  const bestHi = hiFreq.reduce((a, b) => (b.pct > a.pct ? b : a));
+  const bestLo = loFreq.reduce((a, b) => (b.pct > a.pct ? b : a));
+  const worstHi = hiFreq.reduce((a, b) => (b.pct < a.pct ? b : a));
+  const worstLo = loFreq.reduce((a, b) => (b.pct < a.pct ? b : a));
+
+  // ── 6. Trend + momentum ───────────────────────────────────────
+  const w20 = prices.slice(-20);
+  const trendDir = w20[w20.length - 1] > w20[0] ? "UP" : "DOWN";
+  const rng20 = Math.max(...w20) - Math.min(...w20);
+  const avg20 = w20.reduce((a, b) => a + b, 0) / w20.length;
+  const vol = (rng20 / avg20) * 100;
+  const up20 = directions.slice(-20).filter((d) => d === 1).length;
+  const upPct = directions.slice(-20).length > 0 ? (up20 / directions.slice(-20).length) * 100 : 50;
+
+  // ── 7. Rise signal ────────────────────────────────────────────
+  const riseReasons: string[] = [];
+  let riseConf = 50;
+  if (markovPred === "UP") { riseReasons.push(`Markov chain predicts UP — P(UP|${lastDir === 1 ? "UP" : "DOWN"}) = ${(lastDir === 1 ? pUU : pUD).toFixed(1)}%`); riseConf += (markovConf - 50) * 0.5; }
+  if (r1 > 0.05 && lastDir === 1) { riseReasons.push(`Positive autocorrelation r=${r1.toFixed(3)} → trend persistence`); riseConf += 6; }
+  if (trendDir === "UP") { riseReasons.push(`20-tick momentum: UPWARD (${upPct.toFixed(0)}% of moves were up)`); riseConf += 5; }
+  if (upPct > 58) { riseReasons.push(`${upPct.toFixed(0)}% of recent ticks rose — bullish bias`); riseConf += 3; }
+  if (markovPred === "DOWN") { riseReasons.push("Markov predicts DOWN — rise is counter-trend"); riseConf -= 8; }
+
+  // ── 8. Fall signal ────────────────────────────────────────────
+  const fallReasons: string[] = [];
+  let fallConf = 50;
+  if (markovPred === "DOWN") { fallReasons.push(`Markov chain predicts DOWN — P(DOWN|${lastDir === 1 ? "UP" : "DOWN"}) = ${(lastDir === 1 ? pDU : pDD).toFixed(1)}%`); fallConf += (markovConf - 50) * 0.5; }
+  if (r1 < -0.05 && lastDir === 1) { fallReasons.push(`Negative autocorrelation r=${r1.toFixed(3)} → mean reversion after up`); fallConf += 6; }
+  if (trendDir === "DOWN") { fallReasons.push(`20-tick momentum: DOWNWARD (${(100 - upPct).toFixed(0)}% of moves fell)`); fallConf += 5; }
+  if (upPct < 42) { fallReasons.push(`Only ${upPct.toFixed(0)}% of recent ticks rose — bearish bias`); fallConf += 3; }
+  if (markovPred === "UP") { fallReasons.push("Markov predicts UP — fall is counter-trend"); fallConf -= 8; }
+
+  riseConf = parseFloat(Math.min(88, Math.max(33, riseConf)).toFixed(1));
+  fallConf = parseFloat(Math.min(88, Math.max(33, fallConf)).toFixed(1));
+
+  // ── 9. Only Up/Down signals ───────────────────────────────────
+  let onlyUpConf = 45 + (lastDir === 1 ? 8 : -8) + (r1 > 0.1 ? 8 : 0) + (trendDir === "UP" ? 5 : 0) + (streak >= 3 && lastDir === 1 ? -12 : 0);
+  let onlyDnConf = 45 + (lastDir === 0 ? 8 : -8) + (r1 > 0.1 ? 8 : 0) + (trendDir === "DOWN" ? 5 : 0) + (streak >= 3 && lastDir === 0 ? -12 : 0);
+  onlyUpConf = parseFloat(Math.min(84, Math.max(28, onlyUpConf)).toFixed(1));
+  onlyDnConf = parseFloat(Math.min(84, Math.max(28, onlyDnConf)).toFixed(1));
+
+  // ── 10. High/Low Tick signal confidence ───────────────────────
+  const hiConf = parseFloat(Math.min(80, bestHi.pct * 1.2 + (trendDir === "UP" ? 4 : 0)).toFixed(1));
+  const loConf = parseFloat(Math.min(80, bestLo.pct * 1.2 + (trendDir === "DOWN" ? 4 : 0)).toFixed(1));
+
+  return {
+    symbol,
+    current_price: currentPrice,
+    current_digit: currentDigit,
+    sample_size: n,
+    last_updated: now,
+    markov: {
+      current_state: lastDir === 1 ? "UP" : "DOWN",
+      p_up_given_up: parseFloat(pUU.toFixed(1)),
+      p_down_given_up: parseFloat(pDU.toFixed(1)),
+      p_up_given_down: parseFloat(pUD.toFixed(1)),
+      p_down_given_down: parseFloat(pDD.toFixed(1)),
+      predicted: markovPred,
+      confidence: parseFloat(markovConf.toFixed(1)),
+    },
+    autocorrelation: { lag1: parseFloat(r1.toFixed(4)), interpretation: autocorrInterp, signal: autocorrSignal },
+    trend: {
+      direction: trendDir,
+      up_pct: parseFloat(upPct.toFixed(1)),
+      down_pct: parseFloat((100 - upPct).toFixed(1)),
+      volatility: parseFloat(vol.toFixed(3)),
+    },
+    rise_fall: {
+      rise: { signal: riseConf > 55 ? "BUY RISE" : "WAIT", confidence: riseConf, duration: riseConf > 70 ? 3 : 5, reasons: riseReasons.length > 0 ? riseReasons : ["Insufficient trend signal"], risk_level: riseConf > 70 ? "Medium" : "Low" },
+      fall: { signal: fallConf > 55 ? "BUY FALL" : "WAIT", confidence: fallConf, duration: fallConf > 70 ? 3 : 5, reasons: fallReasons.length > 0 ? fallReasons : ["Insufficient trend signal"], risk_level: fallConf > 70 ? "Medium" : "Low" },
+    },
+    only_up_down: {
+      current_direction: lastDir === 1 ? "UP" : "DOWN",
+      current_streak: streak,
+      avg_up_run: parseFloat(avgUp.toFixed(2)),
+      avg_down_run: parseFloat(avgDn.toFixed(2)),
+      prob_extend: parseFloat(probExtend.toFixed(1)),
+      up_run_dist: mkRunDist(upRuns),
+      down_run_dist: mkRunDist(downRuns),
+      total_up_runs: upRuns.length,
+      total_down_runs: downRuns.length,
+      only_up: {
+        signal: lastDir === 1 && onlyUpConf > 52 ? "BUY ONLY UP" : "WAIT",
+        confidence: onlyUpConf, duration: 3,
+        reasons: [
+          `Streak: ${streak} consecutive ${lastDir === 1 ? "UP" : "DOWN"}`,
+          `Avg up-run: ${avgUp.toFixed(1)} ticks | Prob. extend: ${probExtend.toFixed(1)}%`,
+          autocorrInterp === "trending" ? "Autocorrelation r=" + r1.toFixed(3) + " — trend persistence detected" : "No autocorrelation edge",
+        ],
+        risk_level: "High",
+      },
+      only_down: {
+        signal: lastDir === 0 && onlyDnConf > 52 ? "BUY ONLY DOWN" : "WAIT",
+        confidence: onlyDnConf, duration: 3,
+        reasons: [
+          `Streak: ${streak} consecutive ${lastDir === 0 ? "DOWN" : "UP"}`,
+          `Avg down-run: ${avgDn.toFixed(1)} ticks | Prob. extend: ${probExtend.toFixed(1)}%`,
+          autocorrInterp === "mean_reverting" ? "Mean-reverting regime — caution for ONLY DOWN" : "r=" + r1.toFixed(3),
+        ],
+        risk_level: "High",
+      },
+    },
+    high_low_tick: {
+      high_tick_freq: hiFreq,
+      low_tick_freq: loFreq,
+      best_high_tick: bestHi.tick,
+      best_low_tick: bestLo.tick,
+      worst_high_tick: worstHi.tick,
+      worst_low_tick: worstLo.tick,
+      total_windows: totalWin,
+      high_tick: {
+        signal: `HIGH TICK AT ${bestHi.tick}`,
+        confidence: hiConf,
+        tick_position: bestHi.tick,
+        frequency_pct: bestHi.pct,
+        reasons: [
+          `Tick ${bestHi.tick} is the highest ${bestHi.pct}% of 5-tick windows (${bestHi.count} / ${totalWin})`,
+          trendDir === "UP" ? "Uptrend → peak tends to appear later in the window" : "Downtrend → peak tends to appear earlier",
+          `Avoid tick ${worstHi.tick}: lowest high-tick frequency at ${worstHi.pct}%`,
+        ],
+      },
+      low_tick: {
+        signal: `LOW TICK AT ${bestLo.tick}`,
+        confidence: loConf,
+        tick_position: bestLo.tick,
+        frequency_pct: bestLo.pct,
+        reasons: [
+          `Tick ${bestLo.tick} is the lowest ${bestLo.pct}% of 5-tick windows (${bestLo.count} / ${totalWin})`,
+          trendDir === "DOWN" ? "Downtrend → trough tends to appear later" : "Uptrend → trough tends to appear earlier",
+          `Avoid tick ${worstLo.tick}: lowest low-tick frequency at ${worstLo.pct}%`,
+        ],
+      },
+    },
+    recent_prices: prices.slice(-30),
+    price_changes: directions.slice(-50).map((d) => (d === 1 ? "UP" : "DOWN")),
+  };
+}
