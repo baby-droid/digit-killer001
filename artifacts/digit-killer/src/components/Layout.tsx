@@ -40,6 +40,13 @@ const MARKET_GROUPS = [
     ],
   },
   {
+    label: "Daily Reset",
+    symbols: [
+      { key: "RDBEAR", label: "Bear Market" },
+      { key: "RDBULL", label: "Bull Market" },
+    ],
+  },
+  {
     label: "Jump",
     symbols: [
       { key: "JD10",  label: "Jump 10" },
