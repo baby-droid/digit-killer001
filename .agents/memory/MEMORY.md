@@ -1,1 +1,4 @@
 - [Deriv API auth](deriv-api-auth.md) — ticks_history and active_symbols are public; do NOT authorize for these calls.
+- [Real-time tick stream](tick-stream-arch.md) — tickStream.ts maintains persistent WS per symbol; fetchTickHistory serves from buffer first for instant response.
+- [Dropdown stacking context](dropdown-z-index.md) — backdrop-blur on header creates stacking context; SymbolDropdown uses position:fixed + bounding rect to escape it.
+- [Auth gate pattern](auth-gate.md) — localStorage user_token/admin_token; Protected component in App.tsx; Splash checks token → /dashboard or /login.

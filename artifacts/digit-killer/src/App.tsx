@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -27,7 +27,23 @@ const queryClient = new QueryClient({
   },
 });
 
-function WithLayout({ children }: { children: React.ReactNode }) {
+function isAuthenticated(): boolean {
+  return (
+    !!localStorage.getItem("user_token") ||
+    !!localStorage.getItem("admin_token")
+  );
+}
+
+/** Wraps a page with Layout and redirects to /login if not authenticated. */
+function Protected({ children }: { children: React.ReactNode }) {
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    if (!isAuthenticated()) navigate("/login");
+  });
+
+  if (!isAuthenticated()) return null;
+
   return <Layout>{children}</Layout>;
 }
 
@@ -37,31 +53,31 @@ function Router() {
       <Route path="/" component={SplashPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/dashboard">
-        <WithLayout><DashboardPage /></WithLayout>
+        <Protected><DashboardPage /></Protected>
       </Route>
       <Route path="/wide-eye">
-        <WithLayout><WideEyePage /></WithLayout>
+        <Protected><WideEyePage /></Protected>
       </Route>
       <Route path="/over-under">
-        <WithLayout><OverUnderPage /></WithLayout>
+        <Protected><OverUnderPage /></Protected>
       </Route>
       <Route path="/even-odd">
-        <WithLayout><EvenOddPage /></WithLayout>
+        <Protected><EvenOddPage /></Protected>
       </Route>
       <Route path="/match-differ">
-        <WithLayout><MatchDifferPage /></WithLayout>
+        <Protected><MatchDifferPage /></Protected>
       </Route>
       <Route path="/tick-analyser">
-        <WithLayout><TickAnalyserPage /></WithLayout>
+        <Protected><TickAnalyserPage /></Protected>
       </Route>
       <Route path="/ai-signals">
-        <WithLayout><AiSignalsPage /></WithLayout>
+        <Protected><AiSignalsPage /></Protected>
       </Route>
       <Route path="/reports">
-        <WithLayout><ReportsPage /></WithLayout>
+        <Protected><ReportsPage /></Protected>
       </Route>
       <Route path="/settings">
-        <WithLayout><SettingsPage /></WithLayout>
+        <Protected><SettingsPage /></Protected>
       </Route>
       <Route component={NotFound} />
     </Switch>

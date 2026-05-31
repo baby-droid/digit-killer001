@@ -32,7 +32,7 @@ interface ActiveSymbol {
 
 // Cache for tick history per symbol
 const tickCache = new Map<string, number[]>();
-const CACHE_TTL = 5000; // 5 seconds
+const CACHE_TTL = 1500; // 1.5 seconds — keep fresh for real-time feel
 const cacheTimestamps = new Map<string, number>();
 
 function createWsConnection(): Promise<WebSocket> {
@@ -103,6 +103,17 @@ export async function fetchActiveSymbols(): Promise<ActiveSymbol[]> {
 }
 
 export async function fetchTickHistory(symbol: string, count: number = 1000): Promise<number[]> {
+  // Kick off a live subscription so future calls are instant
+  const { ensureSubscribed, getStreamBuffer } = await import("./tickStream");
+  ensureSubscribed(symbol);
+
+  // If the stream buffer already has enough data, serve it instantly
+  const streamData = getStreamBuffer(symbol, count);
+  if (streamData && streamData.length >= Math.min(count, 20)) {
+    return streamData;
+  }
+
+  // Fall back to on-demand WebSocket request (first-load or uncommon symbol)
   const cacheKey = `${symbol}_${count}`;
   const now = Date.now();
   const cached = tickCache.get(cacheKey);

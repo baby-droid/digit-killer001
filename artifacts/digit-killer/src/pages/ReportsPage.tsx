@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSymbol } from "@/context/SymbolContext";
-import { Activity, Brain, BarChart3, TrendingUp, Download, RefreshCw } from "lucide-react";
+import { Activity, Brain, BarChart3, TrendingUp, Download, RefreshCw, FileText, Target } from "lucide-react";
 
 const DIGIT_COLORS: Record<number, string> = {
   0: "#00e5d4", 1: "#448aff", 2: "#ce93d8", 3: "#00c853", 4: "#ff9100",
@@ -152,12 +152,230 @@ function AutocorrChart({ correlations, criticalValue }: { correlations: Array<{ 
   );
 }
 
+interface Strategy {
+  name: string;
+  signal: string;
+  digit?: number;
+  ticks: number;
+  confidence: number;
+  reasoning: string;
+}
+
+function generateStrategies(data: AdvancedData): Strategy[] {
+  const strats: Strategy[] = [];
+  const EVEN = [0, 2, 4, 6, 8];
+
+  // 1. Markov: predict next digit
+  const { predicted_next, predicted_probability, current_digit } = data.markov;
+  if (predicted_probability > 14) {
+    strats.push({
+      name: "Markov Digit Match",
+      signal: "MATCH",
+      digit: predicted_next,
+      ticks: 1,
+      confidence: Math.min(93, predicted_probability * 4),
+      reasoning: `From digit ${current_digit}, Markov predicts ${predicted_next} with ${predicted_probability}% probability.`,
+    });
+  }
+
+  // 2. Parity streak → mean reversion
+  const { parity_streak, parity_type } = data.run_length;
+  if (parity_streak >= 3) {
+    const flip = parity_type === "even" ? "ODD" : "EVEN";
+    strats.push({
+      name: "Parity Mean Reversion",
+      signal: flip,
+      ticks: 3,
+      confidence: Math.min(88, 48 + parity_streak * 8),
+      reasoning: `${parity_streak} consecutive ${parity_type} digits — statistical reversion favours ${flip}.`,
+    });
+  }
+
+  // 3. Even/Odd bias from steady state
+  const evenSS = data.markov.steady_state
+    .filter((_, i) => EVEN.includes(i))
+    .reduce((a, b) => a + b, 0);
+  if (evenSS > 53) {
+    strats.push({
+      name: "Steady-State Even Bias",
+      signal: "EVEN",
+      ticks: 5,
+      confidence: Math.min(80, 50 + (evenSS - 50) * 2),
+      reasoning: `Long-run Markov steady state: Even digits average ${evenSS.toFixed(1)}%, above 50%.`,
+    });
+  } else if (evenSS < 47) {
+    strats.push({
+      name: "Steady-State Odd Bias",
+      signal: "ODD",
+      ticks: 5,
+      confidence: Math.min(80, 50 + (50 - evenSS) * 2),
+      reasoning: `Long-run Markov steady state: Odd digits average ${(100 - evenSS).toFixed(1)}%, above 50%.`,
+    });
+  }
+
+  // 4. Hurst trend continuation
+  if (data.hurst.regime === "trending" && data.run_length.current_streak >= 2) {
+    strats.push({
+      name: "Trend Continuation Match",
+      signal: "MATCH",
+      digit: data.run_length.current_digit,
+      ticks: 2,
+      confidence: 62,
+      reasoning: `H=${data.hurst.hurst} (trending). Digit ${data.run_length.current_digit} streak of ${data.run_length.current_streak} may persist.`,
+    });
+  }
+
+  // 5. Mean-reverting regime → Differ
+  if (data.hurst.regime === "mean_reverting") {
+    strats.push({
+      name: "Mean-Reversion Differ",
+      signal: "DIFFER",
+      digit: data.markov.current_digit,
+      ticks: 1,
+      confidence: 60,
+      reasoning: `H=${data.hurst.hurst} (mean-reverting). Digit ${data.markov.current_digit} is unlikely to repeat.`,
+    });
+  }
+
+  // 6. Conditional probability
+  const cp = data.conditional_probability.current_prediction;
+  if (cp && cp.bestProb > 20) {
+    strats.push({
+      name: "Sequence Pattern Match",
+      signal: "MATCH",
+      digit: cp.best,
+      ticks: 1,
+      confidence: Math.min(90, cp.bestProb * 2.5),
+      reasoning: `After sequence ${cp.key}: digit ${cp.best} follows ${cp.bestProb}% of time.`,
+    });
+  }
+
+  // 7. Over/Under streak
+  const { over_under_streak, over_under_type } = data.run_length;
+  if (over_under_streak >= 4) {
+    const flip = over_under_type === "over" ? "UNDER 5" : "OVER 5";
+    strats.push({
+      name: "Over/Under Mean Reversion",
+      signal: flip,
+      ticks: 3,
+      confidence: Math.min(85, 50 + over_under_streak * 7),
+      reasoning: `${over_under_streak} consecutive ${over_under_type} digits — reversion to ${flip} likely.`,
+    });
+  }
+
+  return strats.sort((a, b) => b.confidence - a.confidence).slice(0, 6);
+}
+
+function exportPDF(data: AdvancedData, strategies: Strategy[]) {
+  const ts = new Date().toLocaleString();
+  const topSig = strategies[0];
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Digit Killer ML Report — ${data.symbol}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 12px; color: #111; padding: 24px; }
+    h1 { font-size: 20px; color: #005fd4; margin: 0 0 4px; }
+    h2 { font-size: 14px; color: #005fd4; border-bottom: 2px solid #005fd4; padding-bottom: 4px; margin: 18px 0 8px; }
+    h3 { font-size: 12px; color: #333; margin: 10px 0 4px; }
+    .meta { color: #666; font-size: 11px; margin-bottom: 16px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .card { border: 1px solid #ddd; border-radius: 6px; padding: 10px; }
+    .signal { font-size: 18px; font-weight: bold; color: #005fd4; }
+    .conf { color: #00a854; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #ddd; padding: 4px 6px; text-align: center; }
+    th { background: #f0f4ff; }
+    .strat { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-bottom: 8px; }
+    .strat-name { font-weight: bold; color: #005fd4; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <h1>DIGIT KILLER — ML Analysis Report</h1>
+  <div class="meta">Symbol: <b>${data.symbol}</b> &nbsp;|&nbsp; Sample: <b>${data.sample_size.toLocaleString()} ticks</b> &nbsp;|&nbsp; Generated: ${ts}</div>
+
+  <h2>Top Trade Signal</h2>
+  ${topSig ? `
+  <div class="card">
+    <div class="signal">${topSig.signal}${topSig.digit !== undefined ? ` (digit ${topSig.digit})` : ""}</div>
+    <div>Contract duration: <b>${topSig.ticks} tick${topSig.ticks > 1 ? "s" : ""}</b></div>
+    <div>Confidence: <span class="conf">${topSig.confidence.toFixed(0)}%</span></div>
+    <div style="margin-top:6px;color:#444">${topSig.reasoning}</div>
+  </div>` : "<p>No signal generated.</p>"}
+
+  <h2>Generated Strategies (${strategies.length})</h2>
+  ${strategies.map((s) => `
+  <div class="strat">
+    <div class="strat-name">${s.name} — ${s.signal}${s.digit !== undefined ? ` digit ${s.digit}` : ""} · ${s.ticks}T · ${s.confidence.toFixed(0)}%</div>
+    <div style="color:#555;margin-top:3px">${s.reasoning}</div>
+  </div>`).join("")}
+
+  <h2>Market Regime</h2>
+  <div class="grid2">
+    <div class="card"><b>Hurst H = ${data.hurst.hurst}</b><br/>${data.hurst.interpretation}</div>
+    <div class="card">Regime: <b>${data.hurst.regime.replace("_"," ").toUpperCase()}</b><br/>
+    Markov Next: <b>${data.markov.predicted_next}</b> (${data.markov.predicted_probability}% conf)</div>
+  </div>
+
+  <h2>Run-Length Analysis</h2>
+  <div class="grid2">
+    <div class="card">Current streak: <b>${data.run_length.current_streak}×</b> digit ${data.run_length.current_digit}<br/>${data.run_length.streak_signal}</div>
+    <div class="card">Parity streak: <b>${data.run_length.parity_streak}×</b> ${data.run_length.parity_type.toUpperCase()}<br/>O/U streak: <b>${data.run_length.over_under_streak}×</b> ${data.run_length.over_under_type.toUpperCase()}</div>
+  </div>
+
+  <h2>Markov Steady State (%)</h2>
+  <table>
+    <tr>${data.markov.steady_state.map((_, i) => `<th>${i}</th>`).join("")}</tr>
+    <tr>${data.markov.steady_state.map((v) => `<td>${v}</td>`).join("")}</tr>
+  </table>
+
+  <h2>Ensemble ML Signals</h2>
+  ${data.ensemble_signals.length === 0 ? "<p>None</p>" : data.ensemble_signals.map((s) => `
+  <div class="strat"><div class="strat-name">${s.type} — ${s.direction} · ${s.confidence.toFixed(0)}%</div>
+  <div style="color:#555">${s.reasoning}</div></div>`).join("")}
+</body>
+</html>`;
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank");
+  if (win) {
+    win.addEventListener("load", () => { win.print(); });
+  }
+}
+
+function exportWord(data: AdvancedData, strategies: Strategy[]) {
+  const ts = new Date().toLocaleString();
+  const wordHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head><meta charset="utf-8"/><title>Digit Killer ML Report</title></head>
+<body style="font-family:Calibri,Arial;font-size:12pt;color:#111;padding:24pt;">
+  <h1 style="color:#005fd4;">DIGIT KILLER — ML Analysis Report</h1>
+  <p style="color:#666;">Symbol: <b>${data.symbol}</b> | Sample: <b>${data.sample_size.toLocaleString()} ticks</b> | Generated: ${ts}</p>
+  <h2 style="color:#005fd4;border-bottom:2pt solid #005fd4;">Top Trade Signal</h2>
+  ${strategies[0] ? `<p><b style="font-size:16pt;color:#005fd4;">${strategies[0].signal}${strategies[0].digit !== undefined ? ` — digit ${strategies[0].digit}` : ""}</b></p>
+  <p>Contract duration: <b>${strategies[0].ticks} tick(s)</b> &nbsp;|&nbsp; Confidence: <b>${strategies[0].confidence.toFixed(0)}%</b></p>
+  <p>${strategies[0].reasoning}</p>` : "<p>No signal.</p>"}
+  <h2 style="color:#005fd4;border-bottom:2pt solid #005fd4;">Generated Strategies</h2>
+  ${strategies.map((s) => `<p><b>${s.name}</b> — ${s.signal}${s.digit !== undefined ? ` digit ${s.digit}` : ""} | ${s.ticks}T | ${s.confidence.toFixed(0)}%<br/><span style="color:#555">${s.reasoning}</span></p>`).join("")}
+  <h2 style="color:#005fd4;border-bottom:2pt solid #005fd4;">Market Regime</h2>
+  <p>Hurst H = <b>${data.hurst.hurst}</b> — ${data.hurst.regime.replace("_"," ").toUpperCase()}<br/>${data.hurst.interpretation}</p>
+  <h2 style="color:#005fd4;border-bottom:2pt solid #005fd4;">Ensemble ML Signals</h2>
+  ${data.ensemble_signals.map((s) => `<p><b>${s.type} — ${s.direction}</b> (${s.confidence.toFixed(0)}%)<br/>${s.reasoning}</p>`).join("")}
+</body></html>`;
+  const blob = new Blob(["\ufeff", wordHtml], { type: "application/msword" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `digit-killer-report-${data.symbol}-${Date.now()}.doc`;
+  a.click();
+}
+
 export default function ReportsPage() {
   const { symbol } = useSymbol();
   const [sampleSize, setSampleSize] = useState(1000);
   const [inputVal, setInputVal] = useState("1000");
 
-  const { data, isLoading, refetch, dataUpdatedAt } = useQuery<AdvancedData>({
+  const { data, isLoading, refetch } = useQuery<AdvancedData>({
     queryKey: ["/api/advanced-analysis", symbol, sampleSize],
     queryFn: async () => {
       const res = await fetch(`/api/advanced-analysis?symbol=${symbol}&count=${sampleSize}`);
@@ -168,6 +386,8 @@ export default function ReportsPage() {
     refetchInterval: 10000,
     staleTime: 8000,
   });
+
+  const strategies = useMemo(() => (data ? generateStrategies(data) : []), [data]);
 
   function applySize() {
     const v = parseInt(inputVal);
@@ -193,7 +413,7 @@ export default function ReportsPage() {
             Markov Chain · Autocorrelation · Hurst Exponent · Run-Length · Conditional Probability
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
           <input
             type="number"
             min={100}
@@ -208,10 +428,30 @@ export default function ReportsPage() {
           <button
             onClick={() => refetch()}
             className="p-2 rounded-md bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors"
-            title="Refresh analysis"
+            title="Refresh"
           >
             <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
           </button>
+          {data && (
+            <>
+              <button
+                onClick={() => exportPDF(data, strategies)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-rajdhani font-semibold transition-colors"
+                style={{ background: "rgba(233,30,140,0.12)", border: "1px solid rgba(233,30,140,0.3)", color: "#e91e8c" }}
+                title="Export as PDF (opens print dialog)"
+              >
+                <FileText size={12} /> PDF
+              </button>
+              <button
+                onClick={() => exportWord(data, strategies)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-rajdhani font-semibold transition-colors"
+                style={{ background: "rgba(68,138,255,0.12)", border: "1px solid rgba(68,138,255,0.3)", color: "#448aff" }}
+                title="Download Word (.doc)"
+              >
+                <Download size={12} /> Word
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -254,6 +494,84 @@ export default function ReportsPage() {
               <div className="font-rajdhani text-xs text-muted-foreground truncate">{data.run_length.streak_signal}</div>
             </div>
           </div>
+
+          {/* ─── Trade Signals & Generated Strategies ─── */}
+          {strategies.length > 0 && (
+            <div className="cyber-card p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Target size={14} className="text-primary" />
+                <span className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase">
+                  Generated Trading Strategies ({strategies.length})
+                </span>
+                <span className="ml-auto text-[10px] font-rajdhani text-muted-foreground">Based on ML analysis · not financial advice</span>
+              </div>
+
+              {/* Top signal hero */}
+              {strategies[0] && (
+                <div
+                  className="p-4 rounded-xl mb-4 flex flex-wrap items-center gap-4"
+                  style={{ background: "linear-gradient(135deg, rgba(0,229,255,0.08), rgba(0,200,83,0.06))", border: "1px solid rgba(0,229,255,0.25)" }}
+                >
+                  <div>
+                    <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1">Top Signal</div>
+                    <div className="font-orbitron text-2xl font-black text-primary">
+                      {strategies[0].signal}
+                      {strategies[0].digit !== undefined && (
+                        <span className="ml-2 text-xl" style={{ color: DIGIT_COLORS[strategies[0].digit] }}>
+                          digit {strategies[0].digit}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-6">
+                    <div>
+                      <div className="font-rajdhani text-[10px] text-muted-foreground">Contract</div>
+                      <div className="font-orbitron font-bold text-lg text-foreground">{strategies[0].ticks} tick{strategies[0].ticks > 1 ? "s" : ""}</div>
+                    </div>
+                    <div>
+                      <div className="font-rajdhani text-[10px] text-muted-foreground">Confidence</div>
+                      <div className="font-orbitron font-bold text-lg" style={{ color: strategies[0].confidence > 70 ? "#00c853" : strategies[0].confidence > 55 ? "#ffd600" : "#ff9100" }}>
+                        {strategies[0].confidence.toFixed(0)}%
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-rajdhani text-xs text-muted-foreground">{strategies[0].reasoning}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* All strategies grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {strategies.map((s, i) => {
+                  const confColor = s.confidence > 70 ? "#00c853" : s.confidence > 55 ? "#ffd600" : "#ff9100";
+                  return (
+                    <div
+                      key={i}
+                      className="p-3 rounded-lg flex flex-col gap-2"
+                      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-rajdhani font-bold text-xs text-muted-foreground tracking-widest">{s.name}</span>
+                        <span className="font-orbitron text-xs font-bold" style={{ color: confColor }}>{s.confidence.toFixed(0)}%</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-orbitron font-black text-base text-primary">{s.signal}</span>
+                        {s.digit !== undefined && (
+                          <span className="font-orbitron font-bold text-base" style={{ color: DIGIT_COLORS[s.digit] }}>digit {s.digit}</span>
+                        )}
+                        <span className="ml-auto font-rajdhani text-xs text-muted-foreground">{s.ticks}T contract</span>
+                      </div>
+                      <div className="h-1 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${s.confidence}%`, background: confColor }} />
+                      </div>
+                      <div className="font-rajdhani text-[11px] text-muted-foreground">{s.reasoning}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Ensemble signals */}
           {data.ensemble_signals.length > 0 && (

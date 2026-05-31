@@ -25,7 +25,13 @@ export default function SplashPage() {
       if (p >= 100) {
         clearInterval(interval);
         setDone(true);
-        setTimeout(() => setLocation("/dashboard"), 600);
+        setTimeout(() => {
+          // Check if user already has a valid session
+          const hasToken =
+            !!localStorage.getItem("user_token") ||
+            !!localStorage.getItem("admin_token");
+          setLocation(hasToken ? "/dashboard" : "/login");
+        }, 600);
       }
     }, 40);
     return () => clearInterval(interval);
@@ -33,7 +39,6 @@ export default function SplashPage() {
 
   return (
     <div className="loading-screen fixed inset-0 flex flex-col items-center justify-center z-50 bg-[#020a10]">
-      {/* Grid background */}
       <div
         className="absolute inset-0 opacity-10"
         style={{
@@ -42,8 +47,6 @@ export default function SplashPage() {
           backgroundSize: "60px 60px",
         }}
       />
-
-      {/* Radial glow */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -53,10 +56,7 @@ export default function SplashPage() {
       />
 
       <div className="relative z-10 flex flex-col items-center gap-8 w-full max-w-sm px-6">
-        {/* Logo */}
-        <div
-          className={`transition-all duration-700 ${done ? "scale-110 opacity-0" : "scale-100 opacity-100"}`}
-        >
+        <div className={`transition-all duration-700 ${done ? "scale-110 opacity-0" : "scale-100 opacity-100"}`}>
           <div className="relative">
             <div
               className="absolute inset-0 rounded-full animate-spin-slow"
@@ -76,7 +76,6 @@ export default function SplashPage() {
           </div>
         </div>
 
-        {/* Title */}
         <div className="text-center space-y-1">
           <h1
             className="font-orbitron text-4xl font-black tracking-widest text-transparent bg-clip-text"
@@ -90,7 +89,6 @@ export default function SplashPage() {
           </p>
         </div>
 
-        {/* Progress */}
         <div className="w-full space-y-3">
           <div className="relative h-1 bg-muted rounded-full overflow-hidden">
             <div
@@ -109,13 +107,10 @@ export default function SplashPage() {
             >
               {STEPS[step]}
             </span>
-            <span className="font-orbitron text-xs text-muted-foreground">
-              {progress}%
-            </span>
+            <span className="font-orbitron text-xs text-muted-foreground">{progress}%</span>
           </div>
         </div>
 
-        {/* Corner decorations */}
         <div className="absolute top-6 left-6 w-12 h-12 border-t-2 border-l-2 border-primary/30" />
         <div className="absolute top-6 right-6 w-12 h-12 border-t-2 border-r-2 border-primary/30" />
         <div className="absolute bottom-6 left-6 w-12 h-12 border-b-2 border-l-2 border-primary/30" />
