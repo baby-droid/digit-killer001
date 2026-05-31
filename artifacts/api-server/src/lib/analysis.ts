@@ -8,151 +8,210 @@ export interface DigitStats {
   color: string;
 }
 
-// Over/Under signal logic based on the strategy documents
+// ── Over/Under Signal Engine ─────────────────────────────────────────────────
+// Uses 3 time-windows (full history, last 100, last 30) + entry-trigger logic.
+// Win probability is computed directly from digit frequencies.
+// Signal fires when: (1) win% > 50%, (2) current digit is at/past barrier,
+// (3) recent trend does not oppose the position.
 export function computeOverUnderSignals(digits: DigitStats[], prices: number[], pipSize: number) {
-  const currentPrice = prices[prices.length - 1] ?? 0;
+  const n = prices.length;
+  if (!n) {
+    return { entries: [], best_over: null, best_under: null,
+             current_price: 0, current_digit: 0, sample_size: 0 };
+  }
+
+  const currentPrice = prices[n - 1] ?? 0;
   const currentDigit = extractLastDigit(currentPrice, pipSize);
 
-  const digitMap = Object.fromEntries(digits.map((d) => [d.digit, d]));
-  const entries = [];
+  // ── Compute frequencies for 3 time windows ──────────────────
+  const allD = prices.map((p) => extractLastDigit(p, pipSize));
+  const mkFreq = (arr: number[]) => {
+    const c = new Array(10).fill(0);
+    arr.forEach((d) => c[d]++);
+    return c.map((v, i) => ({ digit: i, count: v, pct: (v / (arr.length || 1)) * 100 }));
+  };
+  const fullFreq    = mkFreq(allD);              // full history
+  const recentFreq  = mkFreq(allD.slice(-100));  // last 100 ticks
+  const shortFreq   = mkFreq(allD.slice(-30));   // last 30 ticks
+  const last5Digits = allD.slice(-5);
 
-  // OVER strategies
-  const overStrategies = [
-    {
-      contract: "OVER 1",
-      barrier: 1,
-      check: () => digitMap[0]?.percentage < 10 && digitMap[1]?.percentage < 10,
-      entryDigit: 1,
-      ticks: "1-2",
-      risk: "Low",
-    },
-    {
-      contract: "OVER 2",
-      barrier: 2,
-      check: () => [0, 1, 2].every((d) => digitMap[d]?.percentage < 10),
-      entryDigit: 2,
-      ticks: "2-4",
-      risk: "Medium",
-    },
-    {
-      contract: "OVER 3",
-      barrier: 3,
-      check: () => [0, 1, 2, 3].every((d) => digitMap[d]?.percentage < 10),
-      entryDigit: 3,
-      ticks: "2-4",
-      risk: "Medium",
-    },
-    {
-      contract: "OVER 4",
-      barrier: 4,
-      check: () => [0, 1, 2, 3].filter((d) => digitMap[d]?.percentage < 10).length >= 3,
-      entryDigit: 4,
-      ticks: "3-4",
-      risk: "Medium",
-    },
-    {
-      contract: "OVER 5",
-      barrier: 5,
-      check: () => [0, 1, 2, 3, 4].filter((d) => digitMap[d]?.percentage < 10).length >= 3,
-      entryDigit: 5,
-      ticks: "2-3",
-      risk: "High",
-    },
+  // ── Barrier definitions ──────────────────────────────────────
+  const OVER_DEFS = [
+    { barrier: 0, risk: "Very Low", ticks: "1"   },
+    { barrier: 1, risk: "Low",      ticks: "1-2" },
+    { barrier: 2, risk: "Low",      ticks: "1-3" },
+    { barrier: 3, risk: "Medium",   ticks: "1-3" },
+    { barrier: 4, risk: "Medium",   ticks: "2-3" },
+    { barrier: 5, risk: "High",     ticks: "1-2" },
+  ];
+  const UNDER_DEFS = [
+    { barrier: 9, risk: "Very Low", ticks: "1"   },
+    { barrier: 8, risk: "Low",      ticks: "1-2" },
+    { barrier: 7, risk: "Low",      ticks: "1-3" },
+    { barrier: 6, risk: "Medium",   ticks: "2-3" },
+    { barrier: 5, risk: "High",     ticks: "1-2" },
   ];
 
-  const underStrategies = [
-    {
-      contract: "UNDER 9",
-      barrier: 9,
-      check: () => digitMap[9]?.percentage < 10,
-      entryDigit: 9,
-      ticks: "1",
-      risk: "Low",
-    },
-    {
-      contract: "UNDER 8",
-      barrier: 8,
-      check: () => digitMap[8]?.percentage < 10 && digitMap[9]?.percentage < 10,
-      entryDigit: 8,
-      ticks: "1-3",
-      risk: "Low",
-    },
-    {
-      contract: "UNDER 7",
-      barrier: 7,
-      check: () => [7, 8, 9].every((d) => digitMap[d]?.percentage < 10),
-      entryDigit: 7,
-      ticks: "2-3",
-      risk: "Medium",
-    },
-    {
-      contract: "UNDER 6",
-      barrier: 6,
-      check: () => [6, 7, 8, 9].every((d) => digitMap[d]?.percentage < 10),
-      entryDigit: 6,
-      ticks: "5",
-      risk: "Medium",
-    },
-    {
-      contract: "UNDER 5",
-      barrier: 5,
-      check: () => [5, 6, 7, 8, 9].filter((d) => digitMap[d]?.percentage < 10).length >= 3,
-      entryDigit: 5,
-      ticks: "3-5",
-      risk: "High",
-    },
-  ];
+  type OverUnderEntry = {
+    contract: string; recommended_ticks: string; risk_level: string;
+    entry_digit: number; confidence: number; conditions_met: boolean;
+    reason: string; reasons: string[];
+    win_probability: number; recent_win_probability: number; short_win_probability: number;
+    at_barrier: boolean; winning_digits: number[]; losing_digits: number[];
+    trend: string; lose_heat: number; expected_lose_pct: number;
+  };
 
-  for (const s of [...overStrategies, ...underStrategies]) {
-    const conditionsMet = s.check();
-    const barrier = s.barrier;
+  const entries: OverUnderEntry[] = [];
 
-    // Calculate confidence based on how many losing digits are below 10%
-    let confidence = 50;
-    if (s.contract.startsWith("OVER")) {
-      const losingBelow10 = [...Array(barrier + 1).keys()].filter(
-        (d) => digitMap[d]?.percentage < 10
-      ).length;
-      confidence = Math.min(95, 50 + losingBelow10 * 10);
-    } else {
-      const losingBelow10 = [...Array(10).keys()]
-        .slice(barrier)
-        .filter((d) => digitMap[d]?.percentage < 10).length;
-      confidence = Math.min(95, 50 + losingBelow10 * 10);
-    }
+  // ── OVER entries ─────────────────────────────────────────────
+  for (const { barrier, risk, ticks } of OVER_DEFS) {
+    // Win: digit > barrier  →  winning digits = [barrier+1 … 9]
+    const winD  = Array.from({ length: 9 - barrier }, (_, i) => barrier + 1 + i);
+    const loseD = Array.from({ length: barrier + 1 }, (_, i) => i);
 
-    const reason = conditionsMet
-      ? `Conditions met: ${s.contract} setup is valid`
-      : `Waiting: not all required digits below 10%`;
+    const winPct    = winD.reduce((s, d) => s + fullFreq[d].pct, 0);
+    const winRecent = winD.reduce((s, d) => s + recentFreq[d].pct, 0);
+    const winShort  = winD.reduce((s, d) => s + shortFreq[d].pct, 0);
+
+    const loseRecent  = loseD.reduce((s, d) => s + recentFreq[d].pct, 0);
+    const expLosePct  = (barrier + 1) * 10; // expected sum if uniform
+    const loseHeat    = parseFloat((loseRecent - expLosePct).toFixed(1)); // +ve = losing digits hot
+    const trendDelta  = parseFloat((winRecent - winPct).toFixed(1));      // +ve = win% rising
+
+    // Entry trigger: current digit ≤ barrier means you just got a losing digit → best entry
+    const atBarrier = currentDigit <= barrier;
+
+    // Signal fires when win% > 50, entry triggered, and recent trend not strongly against
+    const conditionsMet = winPct > 50 && atBarrier && winRecent >= winPct - 8;
+
+    // ── Confidence (multi-factor) ────────────────────────────
+    let conf = winPct;                          // base = historical win probability
+    if (atBarrier)      conf += 5;              // at entry zone
+    if (loseHeat > 1)   conf += Math.min(6, loseHeat * 1.5); // losing digits over-represented → reversion
+    if (trendDelta > 1) conf += Math.min(5, trendDelta);     // recent trend strengthening
+    if (winShort > winPct + 3) conf += 3;       // short-term momentum matching
+    if (!atBarrier)     conf -= 5;              // not at entry yet
+    if (winRecent < winPct - 5) conf -= 4;      // recent win% declining
+    conf = Math.min(92, Math.max(28, conf));
+
+    const trendLabel = Math.abs(trendDelta) < 1.5 ? "STABLE"
+      : trendDelta > 0 ? `▲ +${trendDelta}% recent` : `▼ ${trendDelta}% recent`;
+
+    const reasons: string[] = [
+      `Win digits [${winD.join(",")}]: ${winPct.toFixed(1)}% (all ${n}) | ${winRecent.toFixed(1)}% (last 100) | ${winShort.toFixed(1)}% (last 30)`,
+      atBarrier
+        ? `✅ Entry trigger ACTIVE — current digit ${currentDigit} ≤ barrier ${barrier}`
+        : `⏳ Wait — current digit ${currentDigit} > barrier ${barrier}; enter when digit falls to ≤${barrier}`,
+      loseHeat > 1
+        ? `🔥 Losing digits [${loseD.join(",")}] are +${loseHeat}% above expected — mean reversion likely`
+        : `Losing digits [${loseD.join(",")}] at ${loseRecent.toFixed(1)}% (expected ${expLosePct}%)`,
+      `Trend: ${trendLabel} | Expected win rate: ${((9 - barrier) * 10).toFixed(0)}%`,
+    ];
 
     entries.push({
-      contract: s.contract,
-      recommended_ticks: s.ticks,
-      risk_level: s.risk,
-      entry_digit: s.entryDigit,
-      confidence: parseFloat(confidence.toFixed(1)),
+      contract: `OVER ${barrier}`,
+      recommended_ticks: ticks,
+      risk_level: risk,
+      entry_digit: barrier,
+      confidence: parseFloat(conf.toFixed(1)),
       conditions_met: conditionsMet,
-      reason,
+      reason: reasons[0],
+      reasons,
+      win_probability:        parseFloat(winPct.toFixed(1)),
+      recent_win_probability: parseFloat(winRecent.toFixed(1)),
+      short_win_probability:  parseFloat(winShort.toFixed(1)),
+      at_barrier: atBarrier,
+      winning_digits: winD,
+      losing_digits: loseD,
+      trend: trendDelta > 1.5 ? "UP" : trendDelta < -1.5 ? "DOWN" : "FLAT",
+      lose_heat: loseHeat,
+      expected_lose_pct: expLosePct,
     });
   }
 
-  // Best over = highest confidence over entry
-  const overEntries = entries.filter((e) => e.contract.startsWith("OVER"));
+  // ── UNDER entries ─────────────────────────────────────────────
+  for (const { barrier, risk, ticks } of UNDER_DEFS) {
+    // Win: digit < barrier  →  winning digits = [0 … barrier-1]
+    const winD  = Array.from({ length: barrier }, (_, i) => i);
+    const loseD = Array.from({ length: 10 - barrier }, (_, i) => barrier + i);
+
+    const winPct    = winD.reduce((s, d) => s + fullFreq[d].pct, 0);
+    const winRecent = winD.reduce((s, d) => s + recentFreq[d].pct, 0);
+    const winShort  = winD.reduce((s, d) => s + shortFreq[d].pct, 0);
+
+    const loseRecent = loseD.reduce((s, d) => s + recentFreq[d].pct, 0);
+    const expLosePct = (10 - barrier) * 10;
+    const loseHeat   = parseFloat((loseRecent - expLosePct).toFixed(1));
+    const trendDelta = parseFloat((winRecent - winPct).toFixed(1));
+
+    // Entry trigger: current digit ≥ barrier means you just got a losing digit
+    const atBarrier = currentDigit >= barrier;
+
+    const conditionsMet = winPct > 50 && atBarrier && winRecent >= winPct - 8;
+
+    let conf = winPct;
+    if (atBarrier)      conf += 5;
+    if (loseHeat > 1)   conf += Math.min(6, loseHeat * 1.5);
+    if (trendDelta > 1) conf += Math.min(5, trendDelta);
+    if (winShort > winPct + 3) conf += 3;
+    if (!atBarrier)     conf -= 5;
+    if (winRecent < winPct - 5) conf -= 4;
+    conf = Math.min(92, Math.max(28, conf));
+
+    const trendLabel = Math.abs(trendDelta) < 1.5 ? "STABLE"
+      : trendDelta > 0 ? `▲ +${trendDelta}% recent` : `▼ ${trendDelta}% recent`;
+
+    const reasons: string[] = [
+      `Win digits [${winD.join(",")}]: ${winPct.toFixed(1)}% (all ${n}) | ${winRecent.toFixed(1)}% (last 100) | ${winShort.toFixed(1)}% (last 30)`,
+      atBarrier
+        ? `✅ Entry trigger ACTIVE — current digit ${currentDigit} ≥ barrier ${barrier}`
+        : `⏳ Wait — current digit ${currentDigit} < barrier ${barrier}; enter when digit rises to ≥${barrier}`,
+      loseHeat > 1
+        ? `🔥 Losing digits [${loseD.join(",")}] are +${loseHeat}% above expected — mean reversion likely`
+        : `Losing digits [${loseD.join(",")}] at ${loseRecent.toFixed(1)}% (expected ${expLosePct}%)`,
+      `Trend: ${trendLabel} | Expected win rate: ${(barrier * 10).toFixed(0)}%`,
+    ];
+
+    entries.push({
+      contract: `UNDER ${barrier}`,
+      recommended_ticks: ticks,
+      risk_level: risk,
+      entry_digit: barrier,
+      confidence: parseFloat(conf.toFixed(1)),
+      conditions_met: conditionsMet,
+      reason: reasons[0],
+      reasons,
+      win_probability:        parseFloat(winPct.toFixed(1)),
+      recent_win_probability: parseFloat(winRecent.toFixed(1)),
+      short_win_probability:  parseFloat(winShort.toFixed(1)),
+      at_barrier: atBarrier,
+      winning_digits: winD,
+      losing_digits: loseD,
+      trend: trendDelta > 1.5 ? "UP" : trendDelta < -1.5 ? "DOWN" : "FLAT",
+      lose_heat: loseHeat,
+      expected_lose_pct: expLosePct,
+    });
+  }
+
+  const overEntries  = entries.filter((e) => e.contract.startsWith("OVER"));
   const underEntries = entries.filter((e) => e.contract.startsWith("UNDER"));
 
-  const bestOver = overEntries.reduce((a, b) =>
-    b.conditions_met && b.confidence > a.confidence ? b : a
-  );
+  const bestOver  = overEntries.reduce((a, b) =>
+    b.conditions_met && b.confidence > a.confidence ? b : a, overEntries[0]);
   const bestUnder = underEntries.reduce((a, b) =>
-    b.conditions_met && b.confidence > a.confidence ? b : a
-  );
+    b.conditions_met && b.confidence > a.confidence ? b : a, underEntries[0]);
 
   return {
-    best_over: bestOver,
-    best_under: bestUnder,
+    best_over:    bestOver,
+    best_under:   bestUnder,
     entries,
-    current_price: currentPrice,
-    current_digit: currentDigit,
+    current_price:  currentPrice,
+    current_digit:  currentDigit,
+    sample_size:    n,
+    full_freq:      fullFreq,
+    recent_freq:    recentFreq,
+    short_freq:     shortFreq,
+    last_5_digits:  last5Digits,
   };
 }
 
