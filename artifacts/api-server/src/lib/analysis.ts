@@ -156,32 +156,111 @@ export function computeOverUnderSignals(digits: DigitStats[], prices: number[], 
   };
 }
 
+/**
+ * Even-Odd Strategy (Analyst Kim / profitap.site method)
+ *
+ * EVEN side = winning side (digits 0,2,4,6,8)
+ * ODD side  = entry zone  (digits 1,3,5,7,9)
+ *
+ * Entry signal fires when:
+ *  1. ALL odd digits are below 10.50% EXCEPT exactly ONE
+ *  2. That one odd digit is ABOVE 10.50% → Entry Candidate
+ *  3. The PRECEDING digit (2nd-to-last in the stream) is also ODD
+ *
+ * When all three conditions are met → trade on the EVEN side.
+ */
 export function computeEvenOddAnalysis(prices: number[], pipSize: number) {
+  const EVEN_DIGITS = [0, 2, 4, 6, 8];
+  const ODD_DIGITS  = [1, 3, 5, 7, 9];
+  const THRESHOLD   = 10.50;
+
   const digits = prices.map((p) => extractLastDigit(p, pipSize));
-  const evenDigits = [0, 2, 4, 6, 8];
-  const evenCount = digits.filter((d) => evenDigits.includes(d)).length;
-  const oddCount = digits.length - evenCount;
-  const total = digits.length || 1;
-  const evenPct = parseFloat(((evenCount / total) * 100).toFixed(1));
-  const oddPct = parseFloat(((oddCount / total) * 100).toFixed(1));
+  const total   = digits.length || 1;
 
-  const currentDigit = digits[digits.length - 1] ?? 0;
-  const recommended = evenPct > oddPct ? "Even" : "Odd";
-  const confidence = Math.abs(evenPct - 50) + 50;
-  const ticks = confidence > 55 ? 2 : 3;
+  // Per-digit frequency
+  const counts: Record<number, number> = {};
+  for (let i = 0; i < 10; i++) counts[i] = 0;
+  digits.forEach((d) => counts[d]++);
 
-  const recentDigits = digits.slice(-20);
+  const pcts: Record<number, number> = {};
+  for (let i = 0; i < 10; i++) {
+    pcts[i] = parseFloat(((counts[i] / total) * 100).toFixed(2));
+  }
+
+  // ── Even side: rank by frequency, assign color labels ────────────────────────
+  const evenRanked = EVEN_DIGITS
+    .map((d) => ({ digit: d, pct: pcts[d], count: counts[d] }))
+    .sort((a, b) => b.pct - a.pct)
+    .map((s, i, arr) => ({
+      ...s,
+      role:  i === 0 ? "most"         : i === 1 ? "second_most"  :
+             i === arr.length - 1 ? "least" : i === arr.length - 2 ? "second_least" : "middle",
+      color: i === 0 ? "green"  : i === 1 ? "blue"   :
+             i === arr.length - 1 ? "red" : i === arr.length - 2 ? "yellow" : "neutral",
+    }));
+
+  // ── Odd side: threshold analysis ──────────────────────────────────────────────
+  const oddStats = ODD_DIGITS.map((d) => ({
+    digit: d,
+    pct: pcts[d],
+    count: counts[d],
+    is_entry_candidate: pcts[d] > THRESHOLD,
+    is_losing: pcts[d] <= THRESHOLD,
+  }));
+
+  // ── Entry signal detection ────────────────────────────────────────────────────
+  const currentDigit   = digits[digits.length - 1] ?? 0;
+  const precedingDigit = digits[digits.length - 2] ?? -1;
+
+  const candidates      = oddStats.filter((s) => s.is_entry_candidate);
+  const exactlyOne      = candidates.length === 1;
+  const precedingIsOdd  = ODD_DIGITS.includes(precedingDigit);
+  const allOthersLosing = oddStats.filter((s) => !s.is_entry_candidate).every((s) => s.pct < THRESHOLD);
+  const signalReady     = exactlyOne && precedingIsOdd && allOthersLosing;
+
+  const entryDigit = candidates[0]?.digit ?? null;
+  const entryPct   = entryDigit !== null ? pcts[entryDigit] : 0;
+
+  // Confidence: how far above threshold the entry digit is
+  let confidence = 50;
+  if (signalReady && entryDigit !== null) {
+    const excess = entryPct - THRESHOLD;
+    confidence = Math.min(95, 62 + excess * 3.5);
+  } else if (exactlyOne && !precedingIsOdd) {
+    // Almost there — one condition missing
+    confidence = 45;
+  }
+
+  // Aggregate even / odd
+  const evenCount = EVEN_DIGITS.reduce((s, d) => s + counts[d], 0);
+  const oddCount  = ODD_DIGITS.reduce((s, d) => s + counts[d], 0);
 
   return {
     even_count: evenCount,
-    odd_count: oddCount,
-    even_pct: evenPct,
-    odd_pct: oddPct,
-    current_digit: currentDigit,
-    recommended,
-    ticks,
-    confidence: parseFloat(Math.min(confidence, 90).toFixed(1)),
-    recent_digits: recentDigits,
+    odd_count:  oddCount,
+    even_pct:   parseFloat(((evenCount / total) * 100).toFixed(1)),
+    odd_pct:    parseFloat(((oddCount  / total) * 100).toFixed(1)),
+    current_digit:   currentDigit,
+    preceding_digit: precedingDigit,
+
+    // Strategy data
+    even_ranked:       evenRanked,
+    odd_stats:         oddStats,
+    entry_threshold:   THRESHOLD,
+    entry_candidates:  candidates,
+    entry_digit:       entryDigit,
+    entry_pct:         parseFloat(entryPct.toFixed(2)),
+    signal_ready:      signalReady,
+    conditions: {
+      exactly_one_candidate: exactlyOne,
+      preceding_is_odd:      precedingIsOdd,
+      all_others_losing:     allOthersLosing,
+    },
+
+    recommended: signalReady ? "Even" : (evenCount >= oddCount ? "Even" : "Odd"),
+    confidence:  parseFloat(confidence.toFixed(1)),
+    ticks:       signalReady ? 5 : 3,
+    recent_digits: digits.slice(-30),
   };
 }
 
