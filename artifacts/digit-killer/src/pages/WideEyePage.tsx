@@ -41,9 +41,42 @@ const ALL_SYMBOLS = MARKET_GROUPS.flatMap((g) => g.symbols);
 
 interface DigitStat { digit: number; percentage: number; rank: number; count: number; }
 
-// ─── SSE live tick hook — push-based, no polling ─────────────────────────────
-function useLiveTick(symbol: string) {
-  const [live, setLive] = useState<{ price: number; digit: number } | null>(null);
+/**
+ * useRealtimeBuffer
+ *
+ * Opens ONE SSE connection per symbol. Maintains a local 100-tick rolling
+ * buffer that is:
+ *   1. Seeded once from the HTTP rolling_digits array (first time it has ≥20 items)
+ *   2. Extended by each incoming SSE tick — old ticks drop off when length > 100
+ *
+ * This means the Even/Odd counts are ALWAYS computed from exactly 100 real
+ * ticks and update the instant Deriv sends a new tick — zero polling lag.
+ */
+function useRealtimeBuffer(symbol: string, seedDigits: number[]) {
+  const [buffer, setBuffer]   = useState<number[]>([]);
+  const [price,  setPrice]    = useState(0);
+  const seededRef = useRef(false);
+  const symbolRef = useRef(symbol);
+
+  // Reset when symbol changes
+  useEffect(() => {
+    if (symbolRef.current !== symbol) {
+      symbolRef.current = symbol;
+      seededRef.current = false;
+      setBuffer([]);
+      setPrice(0);
+    }
+  }, [symbol]);
+
+  // Seed from HTTP data (once per symbol)
+  useEffect(() => {
+    if (!seededRef.current && seedDigits.length >= 20) {
+      setBuffer(seedDigits.slice(-100));
+      seededRef.current = true;
+    }
+  }, [seedDigits]);
+
+  // SSE: append every incoming tick to the buffer
   useEffect(() => {
     if (!symbol) return;
     let es: EventSource;
@@ -52,17 +85,41 @@ function useLiveTick(symbol: string) {
     const open = () => {
       es = new EventSource(`/api/live-ticks?symbol=${encodeURIComponent(symbol)}`);
       es.onmessage = (e) => {
-        try { if (!dead) setLive(JSON.parse(e.data)); } catch {}
+        if (dead) return;
+        try {
+          const { price: p, digit: dg } = JSON.parse(e.data) as { price: number; digit: number };
+          setPrice(p);
+          setBuffer((prev) => {
+            if (prev.length === 0) return prev; // wait for seed
+            const next = [...prev, dg];
+            return next.length > 100 ? next.slice(-100) : next;
+          });
+        } catch {}
       };
-      es.onerror = () => {
-        es.close();
-        if (!dead) setTimeout(open, 2000); // reconnect
-      };
+      es.onerror = () => { es.close(); if (!dead) setTimeout(open, 2000); };
     };
     open();
     return () => { dead = true; es?.close(); };
   }, [symbol]);
-  return live;
+
+  // Derive Even/Odd stats from the local buffer (computed instantly, no server round-trip)
+  const currentDigit  = buffer[buffer.length - 1] ?? 0;
+  const evenCount     = buffer.filter((d) => EVEN_DIGITS.includes(d)).length;
+  const oddCount      = buffer.length - evenCount;
+  const n             = buffer.length || 1;
+  const isSeeded      = buffer.length >= 20;
+
+  return {
+    buffer,
+    price,
+    currentDigit,
+    evenCount,
+    oddCount,
+    evenPct:  parseFloat(((evenCount / n) * 100).toFixed(1)),
+    oddPct:   parseFloat(((oddCount  / n) * 100).toFixed(1)),
+    recent24: buffer.slice(-24),
+    isSeeded,
+  };
 }
 
 // ─── D-Circle Arc Gauge ───────────────────────────────────────────────────────
@@ -196,10 +253,7 @@ export default function WideEyePage() {
   const [tickInput, setTickInput] = useState("1000");
   const [ouThreshold, setOuThreshold] = useState(5);
 
-  // SSE: truly real-time current price + digit (push-based from Deriv)
-  const liveTick = useLiveTick(symbol);
-
-  // HTTP polling: analysis data (distribution, rolling digits)
+  // HTTP polling: D-circle distribution + rolling stream (heavier analysis)
   const { data, isLoading } = useGetWideEyeAnalysis(
     { symbol, count: tickCount },
     {
@@ -212,55 +266,48 @@ export default function WideEyePage() {
   );
 
   const d = data as Record<string, unknown> | undefined;
-  const circleCustom = (d?.d_circle_custom as { digits?: DigitStat[]; current_digit?: number; count?: number }) ?? {};
+  const circleCustom  = (d?.d_circle_custom as { digits?: DigitStat[]; current_digit?: number; count?: number }) ?? {};
   const rollingDigits: number[] = (d?.rolling_digits as number[]) ?? [];
-  const httpPrice = (d?.current_price as number) ?? 0;
 
-  // Prefer SSE for instant current digit/price; fall back to HTTP analysis data
-  const currentPrice  = liveTick?.price  ?? httpPrice;
-  const currentDigit  = liveTick?.digit  ?? circleCustom.current_digit ?? 0;
+  // ── Realtime 100-tick buffer (SSE-fed, seeded from HTTP rolling_digits) ──────
+  // This single hook maintains exactly 100 digits locally, updated the instant
+  // each Deriv tick arrives — no HTTP round-trip for Even/Odd stats.
+  const rt = useRealtimeBuffer(symbol, rollingDigits);
+
+  // Price + current digit: SSE buffer is authoritative; fall back to HTTP
+  const currentPrice  = rt.price || ((d?.current_price as number) ?? 0);
+  const currentDigit  = rt.isSeeded ? rt.currentDigit : (circleCustom.current_digit ?? 0);
 
   const digits: DigitStat[] = circleCustom.digits ??
     Array.from({ length: 10 }, (_, i) => ({ digit: i, percentage: 10, rank: i + 1, count: 0 }));
-  const loadedCount = circleCustom.count ?? 0;
-
-  const sortedDigits = useMemo(() => [...digits].sort((a, b) => b.percentage - a.percentage), [digits]);
-  const mostFrequent  = sortedDigits[0]?.digit ?? -1;
-  const leastFrequent = sortedDigits[sortedDigits.length - 1]?.digit ?? -1;
+  const loadedCount   = circleCustom.count ?? 0;
   const currentLabel  = ALL_SYMBOLS.find((s) => s.key === symbol)?.label ?? symbol;
 
-  // ── Even/Odd: ALWAYS exactly 100 ticks ──────────────────────────────────────
-  // Use rolling_digits (already the last N ticks) sliced to exactly 100
-  const last100 = useMemo(() => rollingDigits.slice(-100), [rollingDigits]);
-  const eo100 = useMemo(() => {
-    const n = last100.length || 1;
-    const even = last100.filter((dv) => EVEN_DIGITS.includes(dv)).length;
-    const odd  = n - even;
-    return {
-      even, odd,
-      evenPct: parseFloat(((even / n) * 100).toFixed(1)),
-      oddPct:  parseFloat(((odd  / n) * 100).toFixed(1)),
-    };
-  }, [last100]);
-  const recentEO = useMemo(() => last100.slice(-24).map((dv) => (EVEN_DIGITS.includes(dv) ? "E" : "O")), [last100]);
-  const isCurrentEven = EVEN_DIGITS.includes(currentDigit);
+  const sortedDigits  = useMemo(() => [...digits].sort((a, b) => b.percentage - a.percentage), [digits]);
+  const mostFrequent  = sortedDigits[0]?.digit ?? -1;
+  const leastFrequent = sortedDigits[sortedDigits.length - 1]?.digit ?? -1;
 
-  // ── Over/Under ───────────────────────────────────────────────────────────────
+  // Even/Odd stats come entirely from the local SSE buffer — always 100 ticks, always current
+  const isCurrentEven = EVEN_DIGITS.includes(currentDigit);
+  const recentEO      = rt.recent24.map((dv) => (EVEN_DIGITS.includes(dv) ? "E" : "O"));
+
+  // ── Over/Under (uses full rolling stream from HTTP for more context) ──────────
   const ouStats = useMemo(() => {
-    const n = rollingDigits.length || 1;
-    const under = rollingDigits.filter((dv) => dv < ouThreshold).length;
-    const equal = rollingDigits.filter((dv) => dv === ouThreshold).length;
-    const over  = rollingDigits.filter((dv) => dv > ouThreshold).length;
+    const arr = rollingDigits.length > 0 ? rollingDigits : rt.buffer;
+    const n = arr.length || 1;
+    const under = arr.filter((dv) => dv < ouThreshold).length;
+    const equal = arr.filter((dv) => dv === ouThreshold).length;
+    const over  = arr.filter((dv) => dv > ouThreshold).length;
     return { under, equal, over,
       underPct: parseFloat(((under / n) * 100).toFixed(1)),
       equalPct: parseFloat(((equal / n) * 100).toFixed(1)),
       overPct:  parseFloat(((over  / n) * 100).toFixed(1)),
     };
-  }, [rollingDigits, ouThreshold]);
-  const recentUO = useMemo(
-    () => rollingDigits.slice(-20).map((dv) => (dv < ouThreshold ? "U" : dv === ouThreshold ? "=" : "O")),
-    [rollingDigits, ouThreshold]
-  );
+  }, [rollingDigits, rt.buffer, ouThreshold]);
+  const recentUO = useMemo(() => {
+    const arr = rollingDigits.length > 0 ? rollingDigits : rt.buffer;
+    return arr.slice(-20).map((dv) => (dv < ouThreshold ? "U" : dv === ouThreshold ? "=" : "O"));
+  }, [rollingDigits, rt.buffer, ouThreshold]);
 
   const applyTickInput = () => {
     const v = parseInt(tickInput);
@@ -284,7 +331,7 @@ export default function WideEyePage() {
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold"
           style={{ background: "rgba(0,200,83,0.12)", border: "1px solid rgba(0,200,83,0.35)", color: "#00c853" }}>
           <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-          {liveTick ? "Live SSE ✓" : "Connecting…"}
+          {rt.isSeeded ? `Live SSE ✓ (${rt.buffer.length})` : "Connecting…"}
         </div>
       </div>
 
@@ -373,20 +420,20 @@ export default function WideEyePage() {
           <div>
             <div className="flex items-baseline gap-2 mb-1">
               <span className="font-bold text-base" style={{ color: "#43a047" }}>Even</span>
-              <span className="font-orbitron text-2xl font-bold text-foreground">{eo100.even}</span>
+              <span className="font-orbitron text-2xl font-bold text-foreground">{rt.evenCount}</span>
             </div>
-            <div className="font-rajdhani text-xs text-muted-foreground mb-1.5">({eo100.evenPct}%)</div>
+            <div className="font-rajdhani text-xs text-muted-foreground mb-1.5">({rt.evenPct}%)</div>
             <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${eo100.evenPct}%`, background: "#43a047" }} />
+              <div className="h-full rounded-full transition-all duration-300" style={{ width: `${rt.evenPct}%`, background: "#43a047" }} />
             </div>
           </div>
 
-          {/* Current digit — CENTRE */}
+          {/* Current digit — CENTRE (SSE-driven, matches live market) */}
           <div className="flex flex-col items-center gap-1">
             <div
-              className="w-16 h-16 rounded-full flex items-center justify-center font-orbitron text-2xl font-black transition-all duration-200"
+              className="w-16 h-16 rounded-full flex items-center justify-center font-orbitron text-2xl font-black transition-all duration-150"
               style={{ background: DIGIT_COLORS[currentDigit], color: "#fff",
-                boxShadow: `0 0 20px ${DIGIT_COLORS[currentDigit]}80` }}
+                boxShadow: `0 0 22px ${DIGIT_COLORS[currentDigit]}90` }}
             >
               {currentDigit}
             </div>
@@ -399,12 +446,12 @@ export default function WideEyePage() {
           {/* Odd column */}
           <div>
             <div className="flex items-baseline gap-2 mb-1 justify-end">
-              <span className="font-orbitron text-2xl font-bold text-foreground">{eo100.odd}</span>
+              <span className="font-orbitron text-2xl font-bold text-foreground">{rt.oddCount}</span>
               <span className="font-bold text-base" style={{ color: "#e53935" }}>Odd</span>
             </div>
-            <div className="font-rajdhani text-xs text-muted-foreground mb-1.5 text-right">({eo100.oddPct}%)</div>
+            <div className="font-rajdhani text-xs text-muted-foreground mb-1.5 text-right">({rt.oddPct}%)</div>
             <div className="h-2.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
-              <div className="h-full rounded-full transition-all duration-500 ml-auto" style={{ width: `${eo100.oddPct}%`, background: "#e53935" }} />
+              <div className="h-full rounded-full transition-all duration-300 ml-auto" style={{ width: `${rt.oddPct}%`, background: "#e53935" }} />
             </div>
           </div>
         </div>
