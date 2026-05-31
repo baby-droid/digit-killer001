@@ -261,6 +261,17 @@ export function computeEvenOddAnalysis(prices: number[], pipSize: number) {
     confidence:  parseFloat(confidence.toFixed(1)),
     ticks:       signalReady ? 5 : 3,
     recent_digits: digits.slice(-30),
+
+    // Full digit distribution for D-circle rendering (all 10 digits, ranked)
+    digit_distribution: Array.from({ length: 10 }, (_, i) => ({
+      digit: i,
+      count: counts[i],
+      percentage: pcts[i],
+      rank: 0, // filled below
+    }))
+      .sort((a, b) => b.percentage - a.percentage)
+      .map((s, i) => ({ ...s, rank: i + 1 }))
+      .sort((a, b) => a.digit - b.digit),
   };
 }
 

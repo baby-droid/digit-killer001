@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   useGetEvenOddAnalysis,
   getGetEvenOddAnalysisQueryKey,
@@ -14,16 +14,15 @@ const EVEN_DIGITS = [0, 2, 4, 6, 8];
 const ODD_DIGITS  = [1, 3, 5, 7, 9];
 const TICK_PRESETS = [100, 200, 500, 1000, 2000];
 
-// Strategy color palette (matches the image)
 const ROLE_COLORS: Record<string, { border: string; label: string; bg: string }> = {
-  green:   { border: "#22c55e", label: "MOST",         bg: "rgba(34,197,94,0.15)" },
-  blue:    { border: "#3b82f6", label: "2ND MOST",     bg: "rgba(59,130,246,0.15)" },
+  green:   { border: "#22c55e", label: "MOST",      bg: "rgba(34,197,94,0.15)"  },
+  blue:    { border: "#3b82f6", label: "2ND MOST",  bg: "rgba(59,130,246,0.15)" },
   neutral: { border: "rgba(255,255,255,0.25)", label: "MID", bg: "rgba(255,255,255,0.05)" },
-  yellow:  { border: "#facc15", label: "2ND LEAST",    bg: "rgba(250,204,21,0.12)" },
-  red:     { border: "#ef4444", label: "LEAST",        bg: "rgba(239,68,68,0.15)" },
+  yellow:  { border: "#facc15", label: "2ND LEAST", bg: "rgba(250,204,21,0.12)" },
+  red:     { border: "#ef4444", label: "LEAST",     bg: "rgba(239,68,68,0.15)"  },
 };
 
-// ── SSE live tick (push-based, zero poll latency) ─────────────────────────────
+// ── SSE live tick ─────────────────────────────────────────────────────────────
 function useLiveTick(symbol: string) {
   const [live, setLive] = useState<{ price: number; digit: number } | null>(null);
   useEffect(() => {
@@ -41,7 +40,51 @@ function useLiveTick(symbol: string) {
   return live;
 }
 
-// ── Digit circle for Even side ────────────────────────────────────────────────
+// ── D-Circle Arc Gauge (same style as Wide Eye) ───────────────────────────────
+function DCircleGauge({ digit, percentage, count, isCurrent, isMost, isLeast }: {
+  digit: number; percentage: number; count: number;
+  isCurrent: boolean; isMost: boolean; isLeast: boolean;
+}) {
+  const color = DIGIT_COLORS[digit];
+  const R = 30; const CX = 36; const CY = 36;
+  const circ = 2 * Math.PI * R;
+  const filled = circ * (percentage / 100);
+  return (
+    <div className="flex flex-col items-center select-none min-w-0">
+      <div className="h-4 flex items-end justify-center mb-0.5">
+        {isMost && !isCurrent && <span style={{ color: "#00e5ff", fontSize: 10, fontWeight: "bold" }}>▲</span>}
+        {isLeast && <span style={{ color: "#ff4d4d", fontSize: 10, fontWeight: "bold" }}>▽</span>}
+      </div>
+      <svg viewBox="0 0 72 72" style={{ width: "clamp(48px,7vw,70px)", height: "clamp(48px,7vw,70px)",
+        filter: isCurrent ? `drop-shadow(0 0 8px ${color}cc)` : undefined }}>
+        <circle cx={CX} cy={CY} r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={6} />
+        <circle cx={CX} cy={CY} r={R} fill="none" stroke={color}
+          strokeWidth={isCurrent ? 8 : 5.5} strokeLinecap="round"
+          strokeDasharray={`${filled} ${circ - filled}`}
+          transform={`rotate(-90 ${CX} ${CY})`}
+          style={{ transition: "stroke-dasharray 0.5s ease" }} />
+        <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"
+          fill={isCurrent ? "#fff" : "rgba(255,255,255,0.85)"}
+          fontFamily="Orbitron,monospace" fontWeight={isCurrent ? "900" : "700"}
+          fontSize={isCurrent ? 16 : 14}>
+          {digit}
+        </text>
+      </svg>
+      <div className="font-orbitron font-bold text-center"
+        style={{ fontSize: "clamp(9px,1.4vw,11px)", color: isCurrent ? color : "rgba(255,255,255,0.55)" }}>
+        {percentage.toFixed(1)}%
+      </div>
+      <div className="font-rajdhani text-center" style={{ fontSize: "9px", color: "rgba(255,255,255,0.25)" }}>
+        {count}
+      </div>
+      <div className="h-3 flex items-start justify-center mt-0.5">
+        {isCurrent && <span style={{ color, fontSize: 11, fontWeight: "bold" }}>▲</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── Even digit circle ─────────────────────────────────────────────────────────
 function EvenDigitCircle({ digit, pct, color, label, isCurrent }: {
   digit: number; pct: number; color: string; label: string; isCurrent: boolean;
 }) {
@@ -66,11 +109,10 @@ function EvenDigitCircle({ digit, pct, color, label, isCurrent }: {
   );
 }
 
-// ── Digit circle for Odd side ─────────────────────────────────────────────────
+// ── Odd digit circle ──────────────────────────────────────────────────────────
 function OddDigitCircle({ digit, pct, isCandidate, isLosing, threshold }: {
   digit: number; pct: number; isCandidate: boolean; isLosing: boolean; threshold: number;
 }) {
-  const dColor = DIGIT_COLORS[digit];
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div className="font-rajdhani text-[9px] font-bold tracking-wider"
@@ -129,10 +171,8 @@ export default function EvenOddPage() {
   const [tickCount, setTickCount] = useState(1000);
   const [customInput, setCustomInput] = useState("1000");
 
-  // SSE: real-time current digit (push-based)
   const liveTick = useLiveTick(symbol);
 
-  // HTTP polling: strategy analysis (1s for freshness)
   const { data, isLoading } = useGetEvenOddAnalysis(
     { symbol, count: tickCount },
     {
@@ -146,11 +186,10 @@ export default function EvenOddPage() {
 
   const d = data as Record<string, unknown> | undefined;
 
-  // Strategy data from backend
-  const evenRanked  = (d?.even_ranked  as Array<{ digit: number; pct: number; role: string; color: string }>) ?? [];
-  const oddStats    = (d?.odd_stats    as Array<{ digit: number; pct: number; is_entry_candidate: boolean; is_losing: boolean }>) ?? [];
-  const conditions  = (d?.conditions   as { exactly_one_candidate: boolean; preceding_is_odd: boolean; all_others_losing: boolean }) ??
-                      { exactly_one_candidate: false, preceding_is_odd: false, all_others_losing: false };
+  const evenRanked      = (d?.even_ranked  as Array<{ digit: number; pct: number; role: string; color: string }>) ?? [];
+  const oddStats        = (d?.odd_stats    as Array<{ digit: number; pct: number; is_entry_candidate: boolean; is_losing: boolean }>) ?? [];
+  const conditions      = (d?.conditions  as { exactly_one_candidate: boolean; preceding_is_odd: boolean; all_others_losing: boolean }) ??
+                          { exactly_one_candidate: false, preceding_is_odd: false, all_others_losing: false };
   const signalReady     = (d?.signal_ready     as boolean) ?? false;
   const entryDigit      = (d?.entry_digit      as number | null) ?? null;
   const entryPct        = (d?.entry_pct        as number) ?? 0;
@@ -159,21 +198,27 @@ export default function EvenOddPage() {
   const ticks           = (d?.ticks            as number) ?? 3;
   const evenPct         = (d?.even_pct         as number) ?? 50;
   const oddPct          = (d?.odd_pct          as number) ?? 50;
-  const recentDigits    = (d?.recent_digits     as number[]) ?? [];
   const precedingDigit  = (d?.preceding_digit  as number) ?? -1;
 
-  // SSE-sourced live digit (instant) falls back to HTTP
+  // D-circle distribution — all 10 digits from the same tick window
+  const digitDist = (d?.digit_distribution as Array<{
+    digit: number; count: number; percentage: number; rank: number;
+  }>) ?? [];
+
   const httpCurrentDigit = (d?.current_digit as number) ?? 0;
   const currentDigit     = liveTick?.digit ?? httpCurrentDigit;
   const isEven           = EVEN_DIGITS.includes(currentDigit);
+
+  const hasStrategyData  = evenRanked.length > 0 && oddStats.length > 0;
+
+  const sortedDist = useMemo(() => [...digitDist].sort((a, b) => b.percentage - a.percentage), [digitDist]);
+  const mostFrequent  = sortedDist[0]?.digit ?? -1;
+  const leastFrequent = sortedDist[sortedDist.length - 1]?.digit ?? -1;
 
   const applyCustom = () => {
     const v = parseInt(customInput);
     if (!isNaN(v) && v >= 10 && v <= 5000) setTickCount(v);
   };
-
-  // Fallback display when no strategy data yet
-  const hasStrategyData = evenRanked.length > 0 && oddStats.length > 0;
 
   return (
     <div className="space-y-4 animate-fade-in-up max-w-4xl" data-testid="page-even-odd">
@@ -191,16 +236,11 @@ export default function EvenOddPage() {
             Analyst Kim Method · Entry on ODD Zone · {tickCount} Ticks
           </p>
         </div>
-
-        {/* Live digit badge */}
         <div className="flex flex-col items-center flex-shrink-0" data-testid="corner-current-digit">
           <div
             className="w-16 h-16 rounded-xl flex items-center justify-center font-orbitron text-3xl font-black transition-all duration-200"
-            style={{
-              background: DIGIT_COLORS[currentDigit],
-              color: "#fff",
-              boxShadow: `0 0 18px ${DIGIT_COLORS[currentDigit]}70`,
-            }}
+            style={{ background: DIGIT_COLORS[currentDigit], color: "#fff",
+              boxShadow: `0 0 18px ${DIGIT_COLORS[currentDigit]}70` }}
           >{currentDigit}</div>
           <div className="mt-1 font-orbitron text-[10px] font-bold tracking-widest"
             style={{ color: isEven ? "#22c55e" : "#fb8c00" }}>
@@ -241,7 +281,107 @@ export default function EvenOddPage() {
         </div>
       </div>
 
-      {/* ─── ENTRY SIGNAL BANNER (shown when conditions are met) ─── */}
+      {/* ─── STRATEGY PANELS (Even | Odd) ─── */}
+      {isLoading && !d ? (
+        <div className="flex justify-center py-12">
+          <div className="w-10 h-10 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+          {/* EVEN SIDE */}
+          <div className="cyber-card p-4" data-testid="panel-even-side">
+            <div className="flex items-center justify-between mb-1">
+              <div>
+                <div className="font-orbitron text-sm font-bold" style={{ color: "#22c55e" }}>
+                  1. EVEN SIDE — WINNING
+                </div>
+                <div className="font-rajdhani text-[10px] text-muted-foreground mt-0.5">
+                  Digits: 0, 2, 4, 6, 8 · Trade on this side
+                </div>
+              </div>
+              <div className="font-orbitron text-xl font-black" style={{ color: "#22c55e" }}>
+                {evenPct}%
+              </div>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden mb-4" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <div className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${evenPct}%`, background: "linear-gradient(90deg,#16a34a,#22c55e)" }} />
+            </div>
+            {hasStrategyData ? (
+              <div className="flex justify-between px-1">
+                {evenRanked.map((e) => (
+                  <EvenDigitCircle key={e.digit} digit={e.digit} pct={e.pct} color={e.color}
+                    label={ROLE_COLORS[e.color]?.label ?? ""} isCurrent={currentDigit === e.digit} />
+                ))}
+              </div>
+            ) : (
+              <div className="flex justify-between px-1">
+                {EVEN_DIGITS.map((dv) => (
+                  <div key={dv} className="w-14 h-14 rounded-full bg-muted/20 animate-pulse" />
+                ))}
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2 justify-center">
+              {[
+                { color: "#22c55e", label: "Most appearing" },
+                { color: "#3b82f6", label: "2nd most" },
+                { color: "#facc15", label: "2nd least" },
+                { color: "#ef4444", label: "Least appearing" },
+              ].map(({ color, label }) => (
+                <div key={label} className="flex items-center gap-1">
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                  <span className="font-rajdhani text-[9px] text-muted-foreground">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ODD SIDE */}
+          <div className="cyber-card p-4" data-testid="panel-odd-side">
+            <div className="flex items-center justify-between mb-1">
+              <div>
+                <div className="font-orbitron text-sm font-bold" style={{ color: "#fb8c00" }}>
+                  2. ODD SIDE — ENTRY ZONE
+                </div>
+                <div className="font-rajdhani text-[10px] text-muted-foreground mt-0.5">
+                  Digits: 1, 3, 5, 7, 9 · Watch for ONE above {threshold}%
+                </div>
+              </div>
+              <div className="font-orbitron text-xl font-black" style={{ color: "#fb8c00" }}>
+                {oddPct}%
+              </div>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden mb-4" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <div className="h-full rounded-full transition-all duration-700"
+                style={{ width: `${oddPct}%`, background: "linear-gradient(90deg,#b45309,#fb8c00)" }} />
+            </div>
+            {hasStrategyData ? (
+              <div className="flex justify-between px-1">
+                {oddStats.map((s) => (
+                  <OddDigitCircle key={s.digit} digit={s.digit} pct={s.pct}
+                    isCandidate={s.is_entry_candidate} isLosing={s.is_losing} threshold={threshold} />
+                ))}
+              </div>
+            ) : (
+              <div className="flex justify-between px-1">
+                {ODD_DIGITS.map((dv) => (
+                  <div key={dv} className="w-14 h-14 rounded-full bg-muted/20 animate-pulse" />
+                ))}
+              </div>
+            )}
+            <div className="mt-3 flex items-center justify-center gap-3">
+              <div className="h-px flex-1" style={{ background: "rgba(250,204,21,0.4)" }} />
+              <span className="font-rajdhani text-[10px] font-bold" style={{ color: "#facc15" }}>
+                Threshold: {threshold}%
+              </span>
+              <div className="h-px flex-1" style={{ background: "rgba(250,204,21,0.4)" }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── ENTRY SIGNAL BANNER ─── */}
       {signalReady && (
         <div className="rounded-xl p-4 border-2 animate-pulse"
           style={{ background: "rgba(34,197,94,0.12)", borderColor: "#22c55e",
@@ -267,7 +407,7 @@ export default function EvenOddPage() {
         </div>
       )}
 
-      {/* ─── WAITING BANNER (when not yet ready) ─── */}
+      {/* ─── WAITING BANNER ─── */}
       {!signalReady && hasStrategyData && (
         <div className="rounded-xl p-3 border"
           style={{ background: "rgba(255,255,255,0.03)", borderColor: "rgba(255,255,255,0.12)" }}>
@@ -276,118 +416,6 @@ export default function EvenOddPage() {
             <div className="font-rajdhani text-sm" style={{ color: "rgba(255,200,100,0.8)" }}>
               <strong>WAITING FOR ENTRY CONDITIONS</strong> — Monitor the ODD zone.
               All 5 odd digits must be below {threshold}% except exactly ONE.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── STRATEGY PANELS ─── */}
-      {isLoading && !d ? (
-        <div className="flex justify-center py-12">
-          <div className="w-10 h-10 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-          {/* EVEN SIDE — Winning Side */}
-          <div className="cyber-card p-4" data-testid="panel-even-side">
-            <div className="flex items-center justify-between mb-1">
-              <div>
-                <div className="font-orbitron text-sm font-bold" style={{ color: "#22c55e" }}>
-                  1. EVEN SIDE — WINNING
-                </div>
-                <div className="font-rajdhani text-[10px] text-muted-foreground mt-0.5">
-                  Digits: 0, 2, 4, 6, 8 · Trade on this side
-                </div>
-              </div>
-              <div className="font-orbitron text-xl font-black" style={{ color: "#22c55e" }}>
-                {evenPct}%
-              </div>
-            </div>
-
-            {/* Progress bar */}
-            <div className="h-1.5 rounded-full overflow-hidden mb-4" style={{ background: "rgba(255,255,255,0.08)" }}>
-              <div className="h-full rounded-full transition-all duration-700"
-                style={{ width: `${evenPct}%`, background: "linear-gradient(90deg, #16a34a, #22c55e)" }} />
-            </div>
-
-            {/* Even digit circles */}
-            {hasStrategyData ? (
-              <div className="flex justify-between px-1">
-                {evenRanked.map((e) => (
-                  <EvenDigitCircle key={e.digit} digit={e.digit} pct={e.pct} color={e.color}
-                    label={ROLE_COLORS[e.color]?.label ?? ""} isCurrent={currentDigit === e.digit} />
-                ))}
-              </div>
-            ) : (
-              <div className="flex justify-between px-1">
-                {EVEN_DIGITS.map((d) => (
-                  <div key={d} className="w-14 h-14 rounded-full bg-muted/20 animate-pulse" />
-                ))}
-              </div>
-            )}
-
-            {/* Color guide */}
-            <div className="mt-3 flex flex-wrap gap-2 justify-center">
-              {[
-                { color: "#22c55e", label: "Most appearing" },
-                { color: "#3b82f6", label: "2nd most" },
-                { color: "#facc15", label: "2nd least" },
-                { color: "#ef4444", label: "Least appearing" },
-              ].map(({ color, label }) => (
-                <div key={label} className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-                  <span className="font-rajdhani text-[9px] text-muted-foreground">{label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ODD SIDE — Entry Zone */}
-          <div className="cyber-card p-4" data-testid="panel-odd-side">
-            <div className="flex items-center justify-between mb-1">
-              <div>
-                <div className="font-orbitron text-sm font-bold" style={{ color: "#fb8c00" }}>
-                  2. ODD SIDE — ENTRY ZONE
-                </div>
-                <div className="font-rajdhani text-[10px] text-muted-foreground mt-0.5">
-                  Digits: 1, 3, 5, 7, 9 · Watch for ONE above {threshold}%
-                </div>
-              </div>
-              <div className="font-orbitron text-xl font-black" style={{ color: "#fb8c00" }}>
-                {oddPct}%
-              </div>
-            </div>
-
-            {/* Threshold line indicator */}
-            <div className="h-1.5 rounded-full overflow-hidden mb-4" style={{ background: "rgba(255,255,255,0.08)" }}>
-              <div className="h-full rounded-full transition-all duration-700"
-                style={{ width: `${oddPct}%`, background: "linear-gradient(90deg, #b45309, #fb8c00)" }} />
-            </div>
-
-            {/* Odd digit circles */}
-            {hasStrategyData ? (
-              <div className="flex justify-between px-1">
-                {oddStats.map((s) => (
-                  <OddDigitCircle key={s.digit} digit={s.digit} pct={s.pct}
-                    isCandidate={s.is_entry_candidate} isLosing={s.is_losing} threshold={threshold} />
-                ))}
-              </div>
-            ) : (
-              <div className="flex justify-between px-1">
-                {ODD_DIGITS.map((d) => (
-                  <div key={d} className="w-14 h-14 rounded-full bg-muted/20 animate-pulse" />
-                ))}
-              </div>
-            )}
-
-            {/* Threshold label */}
-            <div className="mt-3 flex items-center justify-center gap-3">
-              <div className="h-px flex-1" style={{ background: "rgba(250,204,21,0.4)" }} />
-              <span className="font-rajdhani text-[10px] font-bold" style={{ color: "#facc15" }}>
-                Threshold: {threshold}%
-              </span>
-              <div className="h-px flex-1" style={{ background: "rgba(250,204,21,0.4)" }} />
             </div>
           </div>
         </div>
@@ -422,8 +450,6 @@ export default function EvenOddPage() {
                 : "Waiting for digit stream…"}
             />
           </div>
-
-          {/* Signal strength meter */}
           <div className="mt-3">
             <div className="flex items-center justify-between mb-1">
               <span className="font-rajdhani text-xs text-muted-foreground">Signal strength</span>
@@ -445,54 +471,55 @@ export default function EvenOddPage() {
         </div>
       )}
 
-      {/* ─── Recent Digit History ─── */}
-      {recentDigits.length > 0 && (
-        <div className="cyber-card p-4">
-          <div className="font-rajdhani font-semibold text-xs text-muted-foreground tracking-widest uppercase mb-3">
-            Recent Digit Stream · Live
+      {/* ─── D-Circle Distribution (all 10 digits, arc gauge, below analysis) ─── */}
+      <div className="cyber-card p-3 md:p-4" data-testid="section-dcircle">
+        <div className="flex items-center justify-between mb-1">
+          <div className="font-rajdhani text-sm text-foreground font-semibold">
+            Digit Distribution — Last {tickCount} Ticks
           </div>
-          <div className="flex flex-wrap gap-2">
-            {recentDigits.map((dVal, i) => {
-              const isEvenD  = EVEN_DIGITS.includes(dVal);
-              const isLatest = i === recentDigits.length - 1;
-              const isPrev   = i === recentDigits.length - 2;
-              return (
-                <div key={i} className="flex flex-col items-center gap-0.5" data-testid={`recent-digit-${i}`}>
-                  <div
-                    className="w-8 h-8 rounded-md border flex items-center justify-center font-orbitron text-sm font-bold transition-all"
-                    style={{
-                      borderColor: DIGIT_COLORS[dVal],
-                      background: isLatest ? DIGIT_COLORS[dVal] : isPrev ? `${DIGIT_COLORS[dVal]}30` : `${DIGIT_COLORS[dVal]}14`,
-                      color: isLatest ? "#fff" : DIGIT_COLORS[dVal],
-                      boxShadow: isLatest ? `0 0 8px ${DIGIT_COLORS[dVal]}80` : undefined,
-                    }}
-                  >{dVal}</div>
-                  <div className="text-[8px] font-orbitron font-bold"
-                    style={{ color: isEvenD ? "#22c55e" : "#fb8c00" }}>
-                    {isEvenD ? "E" : "O"}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="flex items-center gap-3 text-[10px] font-rajdhani">
+            <span className="text-primary">▲ current / most</span>
+            <span className="text-red-400">▽ least</span>
           </div>
-
-          {/* E/O parity bars */}
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {[
-              { label: "EVEN", pct: evenPct, color: "#22c55e" },
-              { label: "ODD",  pct: oddPct,  color: "#fb8c00" },
-            ].map(({ label, pct, color }) => (
-              <div key={label} className="flex items-center gap-2">
-                <span className="font-orbitron text-[10px] font-bold w-8" style={{ color }}>{label}</span>
-                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
-                  <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
-                </div>
-                <span className="font-orbitron text-[10px] w-10 text-right" style={{ color }}>{pct}%</span>
+        </div>
+        {digitDist.length === 0 ? (
+          <div className="grid mt-2" style={{ gridTemplateColumns: "repeat(10, minmax(0, 1fr))", gap: "4px" }}>
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="flex flex-col items-center gap-1">
+                <div className="rounded-full bg-muted/20 animate-pulse"
+                  style={{ width: "clamp(48px,7vw,70px)", height: "clamp(48px,7vw,70px)" }} />
               </div>
             ))}
           </div>
+        ) : (
+          <div className="grid mt-2" style={{ gridTemplateColumns: "repeat(10, minmax(0, 1fr))", gap: "4px" }}>
+            {Array.from({ length: 10 }, (_, i) => i).map((dv) => {
+              const stat = digitDist.find((x) => x.digit === dv) ??
+                { digit: dv, percentage: 10, rank: dv + 1, count: 0 };
+              return (
+                <DCircleGauge key={dv} digit={dv} percentage={stat.percentage} count={stat.count}
+                  isCurrent={dv === currentDigit} isMost={dv === mostFrequent} isLeast={dv === leastFrequent} />
+              );
+            })}
+          </div>
+        )}
+        {/* Even / Odd group summary under D-circles */}
+        <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-3" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+          {[
+            { label: "EVEN (0,2,4,6,8)", pct: evenPct, color: "#22c55e" },
+            { label: "ODD  (1,3,5,7,9)", pct: oddPct,  color: "#fb8c00" },
+          ].map(({ label, pct, color }) => (
+            <div key={label} className="flex items-center gap-2">
+              <span className="font-orbitron text-[10px] font-bold whitespace-nowrap" style={{ color }}>{pct}%</span>
+              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
+              </div>
+              <span className="font-rajdhani text-[9px] text-muted-foreground whitespace-nowrap">{label}</span>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
+
     </div>
   );
 }
