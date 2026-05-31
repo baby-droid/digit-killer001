@@ -1,7 +1,11 @@
 /**
  * Persistent Deriv WebSocket tick subscriptions.
  * Push-based: listeners are notified IMMEDIATELY when Deriv sends a new tick.
- * No polling anywhere in this path.
+ *
+ * ACCURACY FIX: pip_size is read directly from each Deriv tick message (the
+ * authoritative source) and stored per symbol.  extractDigit() uses it instead
+ * of the old hardcoded × 100.  A static fallback table covers the brief window
+ * before the first tick arrives.
  */
 import WebSocket from "ws";
 import { logger } from "./logger";
@@ -11,13 +15,41 @@ const MAX_BUFFER = 1100;
 
 type TickListener = (price: number, digit: number) => void;
 
-const tickBuffers  = new Map<string, number[]>();
-const wsConns      = new Map<string, WebSocket>();
-const reconnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const tickBuffers   = new Map<string, number[]>();
+const wsConns       = new Map<string, WebSocket>();
+const reconnTimers  = new Map<string, ReturnType<typeof setTimeout>>();
 const tickListeners = new Map<string, Set<TickListener>>();
 
-function extractDigit(price: number): number {
-  return Math.abs(Math.round(price * 100)) % 10;
+/**
+ * pip_size authoritative values – populated from Deriv tick messages.
+ * Fallback table covers the window before the first tick arrives.
+ */
+const pipSizes = new Map<string, number>();
+
+/**
+ * Static fallback pip_size table.
+ * Values come from Deriv's active_symbols API ("pip_size" field).
+ * They are only used before the first live tick updates the map.
+ */
+const FALLBACK_PIP: Record<string, number> = {
+  R_10: 3, R_25: 3, R_50: 4, R_75: 4, R_100: 2,
+  "1HZ10V": 3, "1HZ15V": 4, "1HZ25V": 4, "1HZ30V": 4,
+  "1HZ50V": 4, "1HZ75V": 4, "1HZ90V": 4, "1HZ100V": 2,
+  CRASH300N: 2, CRASH500: 2, CRASH1000: 2,
+  BOOM300N: 2, BOOM500: 2, BOOM1000: 2,
+  JD10: 4, JD25: 3, JD50: 3, JD75: 3, JD100: 2,
+  RDBEAR: 4, RDBULL: 4,
+};
+
+/** Returns the live pip_size for a symbol (from Deriv tick, or fallback). */
+export function getSymbolPipSize(symbol: string): number {
+  return pipSizes.get(symbol) ?? FALLBACK_PIP[symbol] ?? 2;
+}
+
+function extractDigit(price: number, symbol: string): number {
+  const ps = getSymbolPipSize(symbol);
+  const factor = Math.pow(10, ps);
+  return Math.abs(Math.round(price * factor)) % 10;
 }
 
 function connect(symbol: string): void {
@@ -39,6 +71,11 @@ function connect(symbol: string): void {
         if (typeof tick?.quote === "number") {
           const price = tick.quote;
 
+          // Store authoritative pip_size from Deriv the moment it arrives
+          if (typeof tick.pip_size === "number" && tick.pip_size > 0) {
+            pipSizes.set(symbol, tick.pip_size);
+          }
+
           // Update rolling buffer
           const buf = tickBuffers.get(symbol) ?? [];
           buf.push(price);
@@ -48,7 +85,7 @@ function connect(symbol: string): void {
           // Push to all SSE listeners IMMEDIATELY — no polling latency
           const listeners = tickListeners.get(symbol);
           if (listeners?.size) {
-            const digit = extractDigit(price);
+            const digit = extractDigit(price, symbol);
             listeners.forEach((fn) => {
               try { fn(price, digit); } catch { /* ignore listener errors */ }
             });

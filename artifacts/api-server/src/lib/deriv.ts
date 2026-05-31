@@ -1,8 +1,12 @@
 import WebSocket from "ws";
 import { logger } from "./logger";
+import {
+  ensureSubscribed,
+  getStreamBuffer,
+  getSymbolPipSize,
+} from "./tickStream";
 
 const DERIV_WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089";
-const API_TOKEN = process.env.DERIV_API_TOKEN!;
 
 interface DerivMessage {
   msg_type: string;
@@ -104,7 +108,6 @@ export async function fetchActiveSymbols(): Promise<ActiveSymbol[]> {
 
 export async function fetchTickHistory(symbol: string, count: number = 1000): Promise<number[]> {
   // Kick off a live subscription so future calls are instant
-  const { ensureSubscribed, getStreamBuffer } = await import("./tickStream");
   ensureSubscribed(symbol);
 
   // If the stream buffer already has enough data, serve it instantly
@@ -161,21 +164,36 @@ export async function fetchLatestTick(symbol: string): Promise<TickData | null> 
 
     if (prices.length === 0) return null;
 
+    const pipSize = getSymbolPipSize(symbol);
     return {
       epoch: times[times.length - 1] ?? Date.now() / 1000,
       quote: prices[prices.length - 1],
       symbol,
-      pip_size: 2,
+      pip_size: pipSize,
     };
   } finally {
     ws?.close();
   }
 }
 
-export function extractLastDigit(price: number, pipSize: number = 2): number {
+/**
+ * Extract the last digit of a price using the correct pip_size.
+ * pip_size comes from the live Deriv tick stream (authoritative) via
+ * getSymbolPipSize(), so this will always match what Deriv.com shows.
+ */
+export function extractLastDigit(price: number, pipSize: number): number {
   const factor = Math.pow(10, pipSize);
   const intPart = Math.round(price * factor);
-  return intPart % 10;
+  return Math.abs(intPart) % 10;
+}
+
+/**
+ * Returns the pip_size for a symbol.
+ * Uses the live value from Deriv tick messages (set by tickStream.ts),
+ * falling back to the static table if the symbol hasn't ticked yet.
+ */
+export function getDigitPipSize(symbol: string): number {
+  return getSymbolPipSize(symbol);
 }
 
 export function analyseDigits(prices: number[], pipSize: number = 2): Array<{
@@ -219,12 +237,4 @@ export function analyseDigits(prices: number[], pipSize: number = 2): Array<{
   });
 
   return digits;
-}
-
-export function getDigitPipSize(symbol: string): number {
-  // Most Deriv synthetic symbols have pip sizes:
-  if (symbol.startsWith("1HZ") || symbol.includes("V")) return 2;
-  if (symbol.startsWith("JD")) return 2;
-  if (symbol.startsWith("CRASH") || symbol.startsWith("BOOM")) return 2;
-  return 2;
 }
