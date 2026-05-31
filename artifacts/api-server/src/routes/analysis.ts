@@ -6,6 +6,7 @@ import {
   computeMatchDifferSignals,
   computeTickContracts,
   computeAiSignals,
+  computeStrategySignal,
 } from "../lib/analysis";
 
 const router: IRouter = Router();
@@ -290,6 +291,28 @@ router.get("/ai-signals", async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err, symbol }, "ai-signals error");
     res.status(500).json({ error: "Failed to fetch AI signals" });
+  }
+});
+
+router.get("/generate-strategy", async (req, res): Promise<void> => {
+  const symbol = req.query.symbol as string;
+  const contractType = (req.query.contract_type as string)?.toUpperCase();
+  const barrier = req.query.barrier ? parseFloat(req.query.barrier as string) : undefined;
+  const digit = req.query.digit !== undefined ? parseInt(req.query.digit as string) : undefined;
+  const count = Math.min(1000, Math.max(50, parseInt(req.query.count as string) || 500));
+
+  if (!symbol) { res.status(400).json({ error: "symbol is required" }); return; }
+  if (!contractType) { res.status(400).json({ error: "contract_type is required" }); return; }
+
+  try {
+    const pipSize = getDigitPipSize(symbol);
+    const prices = await fetchTickHistory(symbol, count);
+    if (!prices.length) { res.status(404).json({ error: "No tick data" }); return; }
+    const result = computeStrategySignal(symbol, contractType, prices, pipSize, barrier, digit);
+    res.json(result);
+  } catch (err) {
+    req.log.error({ err, symbol, contractType }, "generate-strategy error");
+    res.status(500).json({ error: "Failed to generate strategy" });
   }
 });
 

@@ -880,19 +880,24 @@ export default function ReportsPage() {
               Symbol: <span className="text-primary font-bold">{data.symbol}</span> ·
               Updated: <span className="text-primary font-bold">{new Date(data.last_updated).toLocaleTimeString()}</span>
             </div>
-            <button
-              onClick={() => {
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = `digit-killer-report-${data.symbol}-${Date.now()}.json`;
-                a.click();
-              }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary/10 border border-primary/30 text-primary text-xs font-rajdhani font-semibold hover:bg-primary/20 transition-colors"
-            >
-              <Download size={12} />
-              Export JSON Report
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => exportPDF(data, strategies)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-rajdhani font-semibold transition-colors"
+                style={{ background: "rgba(233,30,140,0.12)", border: "1px solid rgba(233,30,140,0.3)", color: "#e91e8c" }}
+                title="Export as PDF (opens print dialog)"
+              >
+                <FileText size={12} /> Export PDF
+              </button>
+              <button
+                onClick={() => exportWord(data, strategies)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-rajdhani font-semibold transition-colors"
+                style={{ background: "rgba(68,138,255,0.12)", border: "1px solid rgba(68,138,255,0.3)", color: "#448aff" }}
+                title="Download Word (.doc)"
+              >
+                <Download size={12} /> Export Word
+              </button>
+            </div>
           </div>
         </>
       )}
