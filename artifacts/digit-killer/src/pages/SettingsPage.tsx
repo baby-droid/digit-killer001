@@ -8,7 +8,7 @@ import {
   getGetUsersQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Shield, Users, Trash2, UserX, Copy, Check, RefreshCw, AlertCircle } from "lucide-react";
+import { Shield, Users, Trash2, UserX, Copy, Check, RefreshCw, AlertCircle, KeyRound } from "lucide-react";
 import { useHealthCheck } from "@workspace/api-client-react";
 
 interface User {
@@ -61,7 +61,7 @@ function LoginForm({ onSuccess }: { onSuccess: (token: string) => void }) {
           const r = res as { token: string };
           onSuccess(r.token);
         },
-        onError: () => setError("Invalid admin password"),
+        onError: () => setError("Invalid admin PIN"),
       }
     );
   };
@@ -75,7 +75,7 @@ function LoginForm({ onSuccess }: { onSuccess: (token: string) => void }) {
         <div className="text-center">
           <div className="font-orbitron text-lg font-bold text-primary tracking-wider">ADMIN ACCESS</div>
           <div className="font-rajdhani text-xs text-muted-foreground tracking-widest mt-1">
-            Enter admin password to continue
+            Enter admin PIN to continue
           </div>
         </div>
 
@@ -85,7 +85,7 @@ function LoginForm({ onSuccess }: { onSuccess: (token: string) => void }) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Admin password"
+              placeholder="Admin PIN"
               className="w-full bg-muted/40 border border-border/60 rounded-md px-4 py-2.5 text-sm font-rajdhani text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30"
               data-testid="input-admin-password"
             />
@@ -110,7 +110,113 @@ function LoginForm({ onSuccess }: { onSuccess: (token: string) => void }) {
   );
 }
 
-function AdminPanel({ token }: { token: string }) {
+function ChangePinSection() {
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatus("idle");
+    setErrorMsg("");
+
+    if (newPin.length < 4) {
+      setStatus("error");
+      setErrorMsg("PIN must be at least 4 characters");
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setStatus("error");
+      setErrorMsg("PINs do not match");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("admin_token");
+      const res = await fetch("/api/admin/pin", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ new_pin: newPin }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setStatus("error");
+        setErrorMsg((data as { error?: string }).error ?? "Failed to update PIN");
+      } else {
+        setStatus("success");
+        setNewPin("");
+        setConfirmPin("");
+      }
+    } catch {
+      setStatus("error");
+      setErrorMsg("Network error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="cyber-card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <KeyRound size={14} className="text-primary" />
+        <span className="font-rajdhani font-semibold text-xs tracking-widest uppercase text-muted-foreground">
+          Change Admin PIN
+        </span>
+      </div>
+      <form onSubmit={handleChange} className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <input
+            type="password"
+            value={newPin}
+            onChange={(e) => setNewPin(e.target.value)}
+            placeholder="New PIN"
+            className="bg-muted/40 border border-border/60 rounded-md px-3 py-2 text-sm font-rajdhani text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50"
+            data-testid="input-new-pin"
+          />
+          <input
+            type="password"
+            value={confirmPin}
+            onChange={(e) => setConfirmPin(e.target.value)}
+            placeholder="Confirm PIN"
+            className="bg-muted/40 border border-border/60 rounded-md px-3 py-2 text-sm font-rajdhani text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50"
+            data-testid="input-confirm-pin"
+          />
+        </div>
+
+        {status === "error" && (
+          <div className="flex items-center gap-2 text-destructive text-xs font-rajdhani">
+            <AlertCircle size={12} />
+            {errorMsg}
+          </div>
+        )}
+        {status === "success" && (
+          <div className="flex items-center gap-2 text-green-400 text-xs font-rajdhani">
+            <Check size={12} />
+            PIN updated successfully
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={loading || !newPin || !confirmPin}
+          className="px-4 py-2 rounded-md font-rajdhani font-bold text-xs tracking-widest uppercase bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-all disabled:opacity-50"
+          data-testid="button-change-pin"
+        >
+          {loading ? "UPDATING..." : "UPDATE PIN"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function AdminPanel() {
   const qc = useQueryClient();
   const [username, setUsername] = useState("");
   const [newUser, setNewUser] = useState<User | null>(null);
@@ -158,8 +264,6 @@ function AdminPanel({ token }: { token: string }) {
     );
   };
 
-  void token;
-
   return (
     <div className="space-y-4">
       {/* System status */}
@@ -195,6 +299,9 @@ function AdminPanel({ token }: { token: string }) {
           </div>
         </div>
       </div>
+
+      {/* Change admin PIN */}
+      <ChangePinSection />
 
       {/* Generate user */}
       <div className="cyber-card p-4">
@@ -353,7 +460,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {!token ? <LoginForm onSuccess={handleLogin} /> : <AdminPanel token={token} />}
+      {!token ? <LoginForm onSuccess={handleLogin} /> : <AdminPanel />}
     </div>
   );
 }

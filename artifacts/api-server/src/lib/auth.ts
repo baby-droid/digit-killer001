@@ -1,13 +1,16 @@
 import crypto from "crypto";
 
-const ADMIN_PASSWORD = "AHMED2005";
-const ADMIN_TOKEN = crypto.randomBytes(32).toString("hex");
+let adminPassword = "AHMED2005";
 
 // In-memory session store (tokens expire after 24h)
 const sessionStore = new Map<string, { role: string; userId?: number; expiresAt: number }>();
 
 export function verifyAdminPassword(password: string): boolean {
-  return password === ADMIN_PASSWORD;
+  return password === adminPassword;
+}
+
+export function changeAdminPassword(newPassword: string): void {
+  adminPassword = newPassword;
 }
 
 export function createAdminToken(): string {
@@ -54,4 +57,3 @@ export function verifyPassword(password: string, hash: string): boolean {
   return hashPassword(password) === hash;
 }
 
-void ADMIN_TOKEN; // suppress unused warning

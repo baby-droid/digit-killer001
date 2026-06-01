@@ -350,6 +350,18 @@ export const RevokeUserResponse = zod.object({
 
 
 /**
+ * @summary Change admin PIN
+ */
+export const ChangeAdminPinBody = zod.object({
+  "new_pin": zod.string()
+})
+
+export const ChangeAdminPinResponse = zod.object({
+  "message": zod.string()
+})
+
+
+/**
  * @summary User login with generated ID
  */
 export const UserLoginBody = zod.object({

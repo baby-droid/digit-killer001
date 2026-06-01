@@ -25,6 +25,8 @@ import type {
   AdminSession,
   AiSignals,
   AppUser,
+  ChangeAdminPin200,
+  ChangePinInput,
   DigitAnalysis,
   EvenOddAnalysis,
   GetAiSignalsParams,
@@ -1155,6 +1157,77 @@ export const useRevokeUser = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getRevokeUserMutationOptions(options));
+    }
+
+export const getChangeAdminPinUrl = () => {
+
+
+
+
+  return `/api/admin/pin`
+}
+
+/**
+ * @summary Change admin PIN
+ */
+export const changeAdminPin = async (changePinInput: ChangePinInput, options?: RequestInit): Promise<ChangeAdminPin200> => {
+
+  return customFetch<ChangeAdminPin200>(getChangeAdminPinUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      changePinInput,)
+  }
+);}
+
+
+
+
+export const getChangeAdminPinMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changeAdminPin>>, TError,{data: BodyType<ChangePinInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof changeAdminPin>>, TError,{data: BodyType<ChangePinInput>}, TContext> => {
+
+const mutationKey = ['changeAdminPin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof changeAdminPin>>, {data: BodyType<ChangePinInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  changeAdminPin(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ChangeAdminPinMutationResult = NonNullable<Awaited<ReturnType<typeof changeAdminPin>>>
+    export type ChangeAdminPinMutationBody = BodyType<ChangePinInput>
+    export type ChangeAdminPinMutationError = ErrorType<void>
+
+    /**
+ * @summary Change admin PIN
+ */
+export const useChangeAdminPin = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changeAdminPin>>, TError,{data: BodyType<ChangePinInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof changeAdminPin>>,
+        TError,
+        {data: BodyType<ChangePinInput>},
+        TContext
+      > => {
+      return useMutation(getChangeAdminPinMutationOptions(options));
     }
 
 export const getUserLoginUrl = () => {

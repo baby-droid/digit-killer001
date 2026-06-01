@@ -12,6 +12,8 @@ export * from './adminSession';
 export * from './aiSignal';
 export * from './aiSignals';
 export * from './appUser';
+export * from './changeAdminPin200';
+export * from './changePinInput';
 export * from './dCircle';
 export * from './digitAnalysis';
 export * from './digitFrequency';

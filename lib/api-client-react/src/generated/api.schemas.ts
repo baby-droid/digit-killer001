@@ -191,6 +191,10 @@ export interface UserInput {
   username: string;
 }
 
+export interface ChangePinInput {
+  new_pin: string;
+}
+
 export interface AppUser {
   id: number;
   user_id: string;
@@ -233,5 +237,9 @@ count?: number;
 
 export type GetAiSignalsParams = {
 symbol: string;
+};
+
+export type ChangeAdminPin200 = {
+  message: string;
 };
 

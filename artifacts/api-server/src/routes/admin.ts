@@ -10,6 +10,7 @@ import {
   generatePassword,
   hashPassword,
   verifyPassword,
+  changeAdminPassword,
 } from "../lib/auth";
 
 const router: IRouter = Router();
@@ -76,6 +77,17 @@ function requireAdmin(req: Parameters<Parameters<typeof router.use>[0]>[0], res:
   }
   next();
 }
+
+// Change admin PIN
+router.patch("/admin/pin", requireAdmin, async (req, res): Promise<void> => {
+  const { new_pin } = req.body as { new_pin?: string };
+  if (!new_pin || new_pin.trim().length < 4) {
+    res.status(400).json({ error: "new_pin must be at least 4 characters" });
+    return;
+  }
+  changeAdminPassword(new_pin.trim());
+  res.json({ message: "PIN updated successfully" });
+});
 
 // Get all users
 router.get("/admin/users", requireAdmin, async (req, res): Promise<void> => {
