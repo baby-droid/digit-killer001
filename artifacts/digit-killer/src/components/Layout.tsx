@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Eye, TrendingUp, TrendingDown, Divide, Shuffle,
   BarChart2, Zap, Settings, ChevronLeft, ChevronRight,
   Radio, LogIn, FileBarChart, Menu, X, ChevronDown, LogOut,
-  ArrowUp, ArrowDown, ArrowUpDown,
+  ArrowUp, ArrowDown, ArrowUpDown, Bot, LineChart, Calculator,
 } from "lucide-react";
 
 const MARKET_GROUPS = [
@@ -73,17 +73,20 @@ const MARKET_GROUPS = [
 ];
 
 const NAV_ITEMS = [
-  { path: "/dashboard",     label: "Dashboard",      icon: LayoutDashboard },
-  { path: "/wide-eye",      label: "Wide Eye",       icon: Eye },
-  { path: "/over-under",    label: "Over / Under",   icon: TrendingUp },
-  { path: "/even-odd",      label: "Even / Odd",     icon: Divide },
-  { path: "/match-differ",  label: "Match / Differ", icon: Shuffle },
-  { path: "/tick-analyser", label: "Tick Analyser",  icon: BarChart2 },
-  { path: "/rise-fall",     label: "Rise / Fall",    icon: TrendingUp },
-  { path: "/only-up-down",  label: "Only Up/Down",   icon: ArrowUpDown },
-  { path: "/high-low-tick", label: "High/Low Tick",  icon: ArrowUpDown },
-  { path: "/ai-signals",    label: "AI Signals",     icon: Zap },
-  { path: "/reports",       label: "ML Reports",     icon: FileBarChart },
+  { path: "/dashboard",       label: "Dashboard",       icon: LayoutDashboard },
+  { path: "/wide-eye",        label: "Wide Eye",        icon: Eye },
+  { path: "/over-under",      label: "Over / Under",    icon: TrendingUp },
+  { path: "/even-odd",        label: "Even / Odd",      icon: Divide },
+  { path: "/match-differ",    label: "Match / Differ",  icon: Shuffle },
+  { path: "/tick-analyser",   label: "Tick Analyser",   icon: BarChart2 },
+  { path: "/rise-fall",       label: "Rise / Fall",     icon: TrendingUp },
+  { path: "/only-up-down",    label: "Only Up/Down",    icon: ArrowUpDown },
+  { path: "/high-low-tick",   label: "High/Low Tick",   icon: ArrowUpDown },
+  { path: "/ai-signals",      label: "AI Signals",      icon: Zap },
+  { path: "/ai-trading",      label: "AI Trading",      icon: Bot },
+  { path: "/deriv-trader",    label: "Deriv Trader",    icon: LineChart },
+  { path: "/risk-calculator", label: "Risk Calculator", icon: Calculator },
+  { path: "/reports",         label: "ML Reports",      icon: FileBarChart },
 ];
 
 // ─── Symbol dropdown uses FIXED positioning to escape any stacking context ──

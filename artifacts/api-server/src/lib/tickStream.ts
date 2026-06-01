@@ -145,3 +145,59 @@ const DEFAULT_SYMBOLS = [
   "JD10", "JD25", "JD50", "JD75", "JD100",
 ];
 DEFAULT_SYMBOLS.forEach(connect);
+
+// ─── 15-hour auto-reset: clear all in-memory buffers to prevent growth ─────────
+const RESET_INTERVAL_MS = 15 * 60 * 60 * 1000; // 15 hours in milliseconds
+export let serverStartTime = Date.now();
+export let lastResetTime   = Date.now();
+export let resetCount      = 0;
+
+export function clearAllBuffers(): void {
+  tickBuffers.clear();
+  pipSizes.clear();
+  lastResetTime = Date.now();
+  resetCount++;
+  logger.info({ resetCount }, "Buffer reset: all tick data cleared (15-hour cycle)");
+  // Re-subscribe so streams warm back up immediately
+  DEFAULT_SYMBOLS.forEach(connect);
+}
+
+// Fires every 15 hours — no accumulation, no disk writes, no storage leaks
+setInterval(clearAllBuffers, RESET_INTERVAL_MS);
+
+/** Returns a real-time snapshot of server memory and buffer state. */
+export function getSystemStats() {
+  const mem = process.memoryUsage();
+  const totalTicks = Array.from(tickBuffers.values()).reduce((s, b) => s + b.length, 0);
+  const totalListeners = Array.from(tickListeners.values()).reduce((s, l) => s + l.size, 0);
+  const nextReset = lastResetTime + RESET_INTERVAL_MS;
+  const msToReset = Math.max(0, nextReset - Date.now());
+  return {
+    uptime_seconds:    Math.floor((Date.now() - serverStartTime) / 1000),
+    last_reset:        new Date(lastResetTime).toISOString(),
+    next_reset:        new Date(nextReset).toISOString(),
+    ms_to_next_reset:  msToReset,
+    reset_interval_h:  15,
+    reset_count:       resetCount,
+    storage: {
+      policy: "in-memory only — no disk writes for tick data",
+      total_symbols_buffered: tickBuffers.size,
+      total_ticks_in_memory:  totalTicks,
+      estimated_bytes:        totalTicks * 8,
+      max_ticks_per_symbol:   MAX_BUFFER,
+    },
+    connections: {
+      active_websockets: wsConns.size,
+      active_sse_listeners: totalListeners,
+    },
+    memory_mb: {
+      rss:        Math.round(mem.rss        / 1024 / 1024),
+      heap_used:  Math.round(mem.heapUsed   / 1024 / 1024),
+      heap_total: Math.round(mem.heapTotal  / 1024 / 1024),
+      external:   Math.round(mem.external   / 1024 / 1024),
+    },
+    buffers_per_symbol: Object.fromEntries(
+      Array.from(tickBuffers.entries()).map(([sym, buf]) => [sym, buf.length])
+    ),
+  };
+}

@@ -12,6 +12,7 @@ import {
   verifyPassword,
   changeAdminPassword,
 } from "../lib/auth";
+import { getSystemStats, clearAllBuffers } from "../lib/tickStream";
 
 const router: IRouter = Router();
 
@@ -201,6 +202,70 @@ router.patch("/admin/users/:id/revoke", requireAdmin, async (req, res): Promise<
     req.log.error({ err, id }, "revoke user error");
     res.status(500).json({ error: "Failed to revoke user" });
   }
+});
+
+// ─── System health & diagnostics ──────────────────────────────────────────────
+router.get("/admin/system-health", requireAdmin, (_req, res): void => {
+  res.json(getSystemStats());
+});
+
+// Manual buffer clear (also triggered automatically every 15 hours)
+router.post("/admin/clear-cache", requireAdmin, (_req, res): void => {
+  clearAllBuffers();
+  res.json({ ok: true, message: "All in-memory buffers cleared. Streams will re-warm within seconds." });
+});
+
+// Test any internal API endpoint — returns status, latency, and key count
+router.post("/admin/test-endpoint", requireAdmin, async (req, res): Promise<void> => {
+  const { path: urlPath } = req.body as { path?: string };
+  if (!urlPath) { res.status(400).json({ error: "path required" }); return; }
+  const port = process.env.PORT ?? "8080";
+  const full  = `http://localhost:${port}${urlPath.startsWith("/api") ? urlPath : `/api${urlPath}`}`;
+  const start = Date.now();
+  try {
+    const r = await fetch(full, { signal: AbortSignal.timeout(8000) });
+    const latency = Date.now() - start;
+    let data: unknown;
+    try { data = await r.json(); } catch { data = null; }
+    const keys = data && typeof data === "object" ? Object.keys(data as object) : [];
+    res.json({ ok: r.ok, status: r.status, latency_ms: latency, keys, url: full });
+  } catch (err) {
+    res.json({ ok: false, status: 0, latency_ms: Date.now() - start, error: String(err), url: full });
+  }
+});
+
+// Quick connectivity test — tests Deriv public WS availability
+router.get("/admin/diagnostics", requireAdmin, async (_req, res): Promise<void> => {
+  const stats = getSystemStats();
+  const port  = process.env.PORT ?? "8080";
+  const base  = `http://localhost:${port}`;
+
+  const testEndpoints = [
+    { name: "Health Check",         path: "/api/health" },
+    { name: "Active Symbols",       path: "/api/active-symbols" },
+    { name: "Digit Analysis R_50",  path: "/api/digit-analysis?symbol=R_50&count=100" },
+    { name: "Wide Eye R_50",        path: "/api/wide-eye-analysis?symbol=R_50&count=100" },
+    { name: "Even/Odd R_50",        path: "/api/even-odd-analysis?symbol=R_50&count=100" },
+    { name: "Match/Differ R_50",    path: "/api/match-differ-signals?symbol=R_50" },
+    { name: "AI Signals R_50",      path: "/api/ai-signals?symbol=R_50" },
+  ];
+
+  const results = await Promise.allSettled(
+    testEndpoints.map(async (ep) => {
+      const start = Date.now();
+      const r = await fetch(`${base}${ep.path}`, { signal: AbortSignal.timeout(6000) });
+      return { name: ep.name, ok: r.ok, status: r.status, latency_ms: Date.now() - start };
+    })
+  );
+
+  res.json({
+    system: stats,
+    endpoints: results.map((r, i) =>
+      r.status === "fulfilled"
+        ? r.value
+        : { name: testEndpoints[i].name, ok: false, status: 0, latency_ms: 0, error: String(r.reason) }
+    ),
+  });
 });
 
 export default router;

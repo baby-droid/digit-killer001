@@ -480,11 +480,11 @@ export default function WideEyePage() {
         )}
       </div>
 
-      {/* ─── Rolling Tick Stream ─── */}
+      {/* ─── Rolling Tick Stream (last 50 digits) ─── */}
       <div className="cyber-card p-3 md:p-4">
         <div className="flex items-center justify-between mb-2">
           <div className="font-rajdhani text-sm text-foreground font-semibold">
-            Rolling {tickCount}-Tick Stream
+            Live Tick Stream — Last 50 Digits
           </div>
           <div className="flex items-center gap-1.5 text-xs font-rajdhani text-green-400">
             <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> live
@@ -496,18 +496,18 @@ export default function WideEyePage() {
           </div>
         ) : (
           <div className="flex flex-wrap gap-1">
-            {rollingDigits.map((dv, i) => {
-              const isLatest = i === rollingDigits.length - 1;
+            {rollingDigits.slice(-50).map((dv, i, arr) => {
+              const isLatest = i === arr.length - 1;
               const c = DIGIT_COLORS[dv];
-              const age = i / rollingDigits.length;
+              const age = i / arr.length;
               return (
                 <div key={i}
                   className="flex items-center justify-center rounded-full font-orbitron font-bold text-white flex-shrink-0"
-                  style={{ width: isLatest ? "26px" : "20px", height: isLatest ? "26px" : "20px",
-                    fontSize: isLatest ? "12px" : "9px", background: c,
+                  style={{ width: isLatest ? "28px" : "22px", height: isLatest ? "28px" : "22px",
+                    fontSize: isLatest ? "12px" : "10px", background: c,
                     border: isLatest ? "2px solid #fff" : undefined,
-                    boxShadow: isLatest ? `0 0 8px ${c}` : undefined,
-                    opacity: Math.max(0.35, 0.35 + age * 0.65) }}>
+                    boxShadow: isLatest ? `0 0 10px ${c}` : undefined,
+                    opacity: Math.max(0.4, 0.4 + age * 0.6) }}>
                   {dv}
                 </div>
               );

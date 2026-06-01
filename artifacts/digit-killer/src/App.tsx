@@ -16,6 +16,9 @@ import RiseFallPage from "@/pages/RiseFallPage";
 import OnlyUpDownPage from "@/pages/OnlyUpDownPage";
 import HighLowTickPage from "@/pages/HighLowTickPage";
 import AiSignalsPage from "@/pages/AiSignalsPage";
+import AiTradingPage from "@/pages/AiTradingPage";
+import DerivTraderPage from "@/pages/DerivTraderPage";
+import RiskCalculatorPage from "@/pages/RiskCalculatorPage";
 import SettingsPage from "@/pages/SettingsPage";
 import ReportsPage from "@/pages/ReportsPage";
 import NotFound from "@/pages/not-found";
@@ -60,6 +63,9 @@ function Router() {
       <Route path="/only-up-down"><Protected><OnlyUpDownPage /></Protected></Route>
       <Route path="/high-low-tick"><Protected><HighLowTickPage /></Protected></Route>
       <Route path="/ai-signals"><Protected><AiSignalsPage /></Protected></Route>
+      <Route path="/ai-trading"><Protected><AiTradingPage /></Protected></Route>
+      <Route path="/deriv-trader"><Protected><DerivTraderPage /></Protected></Route>
+      <Route path="/risk-calculator"><Protected><RiskCalculatorPage /></Protected></Route>
       <Route path="/reports"><Protected><ReportsPage /></Protected></Route>
       <Route path="/settings"><Protected><SettingsPage /></Protected></Route>
       <Route component={NotFound} />

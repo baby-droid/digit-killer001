@@ -233,7 +233,7 @@ export default function EvenOddPage() {
             </h2>
           </div>
           <p className="font-rajdhani text-xs text-muted-foreground tracking-widest uppercase mt-0.5">
-            Analyst Kim Method · Entry on ODD Zone · {tickCount} Ticks
+            Even / Odd Signal Strategy · Entry Analysis · {tickCount} Ticks
           </p>
         </div>
         <div className="flex flex-col items-center flex-shrink-0" data-testid="corner-current-digit">
