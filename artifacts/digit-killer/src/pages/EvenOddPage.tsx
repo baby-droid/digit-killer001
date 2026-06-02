@@ -41,6 +41,10 @@ function FloatingDigitCircle({
   const R = 28; const CX = 34; const CY = 34;
   const circ = 2 * Math.PI * R;
   const filled = circ * (pct / 100);
+  // Arc-tip cursor: dot lives at the END of the filled arc (Deriv.com accurate style)
+  const tipAngle = -Math.PI / 2 + (pct / 100) * 2 * Math.PI;
+  const tipX = CX + R * Math.cos(tipAngle);
+  const tipY = CY + R * Math.sin(tipAngle);
   return (
     <div className="flex flex-col items-center select-none" style={{ minWidth: 0 }}>
       <svg viewBox="0 0 68 68"
@@ -58,27 +62,24 @@ function FloatingDigitCircle({
           fontSize={isCurrent ? 15 : 13}>
           {digit}
         </text>
+        {/* Accurate arc-tip cursor dot on circumference (Deriv.com style) */}
+        {isCurrent && (
+          <circle cx={tipX} cy={tipY} r={4.5} fill="#ff1e9e"
+            style={{ filter: "drop-shadow(0 0 6px #ff1e9e)", transition: "cx 0.6s ease, cy 0.6s ease" }} />
+        )}
+        {isMost && !isCurrent && (
+          <circle cx={tipX} cy={tipY} r={3} fill="#22c55e" opacity={0.85} />
+        )}
+        {isLeast && !isCurrent && (
+          <circle cx={tipX} cy={tipY} r={3} fill="#ef4444" opacity={0.85} />
+        )}
       </svg>
       <div className="font-orbitron font-bold text-center mt-0.5"
         style={{ fontSize: "clamp(8px,1.2vw,11px)",
           color: isMost ? "#22c55e" : isLeast ? "#ef4444" : isCurrent ? color : "rgba(255,255,255,0.5)" }}>
         {pct.toFixed(1)}%
       </div>
-      {/* Pink moving cursor arrow */}
-      {isCurrent && (
-        <div style={{ marginTop: 2 }}>
-          <svg width={12} height={8} viewBox="0 0 12 8">
-            <polygon points="6,0 12,8 0,8" fill="#ff1e9e" />
-          </svg>
-        </div>
-      )}
-      {!isCurrent && (isElevated || isMost || isLeast) && (
-        <div style={{ height: 10 }}>
-          {isMost && <div style={{ width: 16, height: 3, background: "#22c55e", borderRadius: 2, margin: "4px auto 0" }} />}
-          {isLeast && <div style={{ width: 16, height: 3, background: "#ef4444", borderRadius: 2, margin: "4px auto 0" }} />}
-        </div>
-      )}
-      {!isCurrent && !isElevated && !isMost && !isLeast && <div style={{ height: 10 }} />}
+      <div style={{ height: 10 }} />
     </div>
   );
 }

@@ -45,7 +45,7 @@ function useDerivWS(token: string | null) {
   const typeListeners = useRef<Map<string, (m: Record<string, unknown>) => void>>(new Map());
 
   const getWsUrl = useCallback((t: string) =>
-    t.startsWith("pat_") ? DERIV_WS_BETA : DERIV_WS_LEGACY, []);
+    t.trim().startsWith("pat_") ? DERIV_WS_BETA : DERIV_WS_LEGACY, []);
 
   const send = useCallback((msg: Record<string, unknown>) => {
     const id = reqId.current++;
@@ -69,14 +69,15 @@ function useDerivWS(token: string | null) {
     return () => typeListeners.current.delete(type);
   }, []);
 
-  const connect = useCallback(() => {
-    if (!token) return;
+  const connect = useCallback((overrideToken?: string) => {
+    const t = (overrideToken !== undefined ? overrideToken : token ?? "").trim();
+    if (!t) return;
     ws.current?.close();
     setStatus("connecting"); setError(null);
-    const url = getWsUrl(token);
+    const url = getWsUrl(t);
     const socket = new WebSocket(url);
     ws.current = socket;
-    socket.onopen  = () => { setStatus("authorizing"); socket.send(JSON.stringify({ authorize: token, req_id: reqId.current++ })); };
+    socket.onopen  = () => { setStatus("authorizing"); socket.send(JSON.stringify({ authorize: t, req_id: reqId.current++ })); };
     socket.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as Record<string, unknown>;
@@ -261,10 +262,11 @@ export default function AiTradingPage() {
     if (!t) return;
     setToken(t);
     localStorage.setItem("deriv_token", t);
+    derivWS.connect(t);
   };
 
   useEffect(() => {
-    if (token) derivWS.connect();
+    if (token) derivWS.connect(token);
   }, [token]);
 
   // Auto-trade trigger

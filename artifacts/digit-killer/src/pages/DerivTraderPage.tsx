@@ -77,6 +77,25 @@ function useMultiSymbolFeed(symbols: typeof TRACKED_SYMBOLS, activeGroup: string
       if (esSources.current.has(key)) return;
       const open = () => {
         if (dead.current) return;
+        // Pre-seed digit frequencies from 1000-tick history — instant accurate display on market select
+        fetch(`/api/digit-analysis?symbol=${encodeURIComponent(key)}&count=1000`)
+          .then((r) => r.json())
+          .then((data: { digits?: Array<{ digit: number; count: number }>; count?: number }) => {
+            if (dead.current || !data.digits?.length) return;
+            const freq = Array(10).fill(0) as number[];
+            data.digits.forEach((d: { digit: number; count: number }) => { freq[d.digit] = d.count; });
+            const total = data.count ?? 1000;
+            setStats((prev) => {
+              const next = new Map(prev);
+              const existing = next.get(key);
+              if (!existing || existing.tickCount < 50) {
+                next.set(key, { key, label, group: grp, price: existing?.price ?? 0,
+                  digit: existing?.digit ?? 0, digitFreq: freq, tickCount: total, lastUpdate: Date.now() });
+              }
+              return next;
+            });
+          })
+          .catch(() => {});
         const es = new EventSource(`/api/live-ticks?symbol=${encodeURIComponent(key)}`);
         esSources.current.set(key, es);
         es.onmessage = (e) => {
@@ -176,6 +195,10 @@ function FloatingDigitCircles({ digitFreq, tickCount, currentDigit }: {
         const isLeast   = d === leastFreq;
         const filled    = circ * (pct/100);
         const color     = isMost ? "#22c55e" : isLeast ? "#ef4444" : isCurrent ? "#ff1e9e" : "rgba(255,255,255,0.35)";
+        // Arc-tip cursor: pink dot at END of filled arc (Deriv.com accurate style)
+        const tipAngle  = -Math.PI / 2 + (pct / 100) * 2 * Math.PI;
+        const tipX      = CX + R * Math.cos(tipAngle);
+        const tipY      = CY + R * Math.sin(tipAngle);
         return (
           <div key={d} className="flex flex-col items-center" style={{ minWidth:0 }}>
             <svg viewBox="0 0 64 64" style={{ width:"clamp(40px,5.5vw,58px)", height:"clamp(40px,5.5vw,58px)",
@@ -192,19 +215,24 @@ function FloatingDigitCircles({ digitFreq, tickCount, currentDigit }: {
                 fontSize={isCurrent?14:12}>
                 {d}
               </text>
+              {/* Accurate arc-tip cursor dot on circumference (Deriv.com style) */}
+              {isCurrent && (
+                <circle cx={tipX} cy={tipY} r={4.5} fill="#ff1e9e"
+                  style={{ filter:"drop-shadow(0 0 5px #ff1e9e)", transition:"cx 0.5s ease,cy 0.5s ease" }}/>
+              )}
+              {isMost && !isCurrent && (
+                <circle cx={tipX} cy={tipY} r={3} fill="#22c55e" opacity={0.85}/>
+              )}
+              {isLeast && !isCurrent && (
+                <circle cx={tipX} cy={tipY} r={3} fill="#ef4444" opacity={0.85}/>
+              )}
             </svg>
             <div className="font-orbitron text-center font-bold mt-0.5"
               style={{ fontSize:"clamp(7px,1vw,10px)",
                 color: isMost?"#22c55e":isLeast?"#ef4444":isCurrent?"#ff1e9e":"rgba(255,255,255,0.4)" }}>
               {pct.toFixed(1)}%
             </div>
-            {isCurrent ? (
-              <svg width={10} height={7} viewBox="0 0 10 7" style={{ marginTop:2 }}>
-                <polygon points="5,0 10,7 0,7" fill="#ff1e9e"/>
-              </svg>
-            ) : (isMost || isLeast) ? (
-              <div style={{ width:14,height:3,background:isMost?"#22c55e":"#ef4444",borderRadius:2,marginTop:2,marginLeft:"auto",marginRight:"auto" }}/>
-            ) : <div style={{ height:9 }}/>}
+            <div style={{ height:9 }}/>
           </div>
         );
       })}
@@ -268,6 +296,10 @@ export default function DerivTraderPage() {
   const [trades, setTrades]                   = useState<Array<{ id:string;type:string;stake:number;profit:number|null;status:string;ts:string }>>([]);
   const [aiSignal, setAiSignal]               = useState<AiSignal|null>(null);
   const [openContracts, setOpenContracts]     = useState<Array<{cid:number;price:number}>>([]);
+  const [tpEnabled, setTpEnabled]             = useState(false);
+  const [slEnabled, setSlEnabled]             = useState(false);
+  const [tpAmount, setTpAmount]               = useState(10);
+  const [slAmount, setSlAmount]               = useState(5);
 
   const groupSymbols = useMemo(()=>TRACKED_SYMBOLS.filter((s)=>s.group===activeGroup),[activeGroup]);
   const statsMap = useMultiSymbolFeed(TRACKED_SYMBOLS, activeGroup);
@@ -297,13 +329,16 @@ export default function DerivTraderPage() {
 
   // Auto-trade trigger
   useEffect(()=>{
-    if (!autoTrade||derivWS.status!=="connected"||trading) return;
+    if (!autoTrade||derivWS.status!=="connected"||trading||tradingBlocked) return;
     const delay=1500+Math.random()*2000;
     const t=setTimeout(()=>{ void executeTrade(); },delay);
     return ()=>clearTimeout(t);
   },[autoTrade,derivWS.status,trading]);
 
   const currentStake = martingaleOn ? Math.min(stake*Math.pow(martMult,lossStreak),stake*32) : stake;
+  const tpHit = tpEnabled && sessionPL >= tpAmount;
+  const slHit = slEnabled && sessionPL <= -slAmount;
+  const tradingBlocked = tpHit || slHit;
 
   const connectDeriv=()=>{
     const t=tokenInput.trim();
@@ -313,7 +348,7 @@ export default function DerivTraderPage() {
   };
 
   const executeTrade=async()=>{
-    if (derivWS.status!=="connected"||trading) return;
+    if (derivWS.status!=="connected"||trading||tradingBlocked) return;
     setTrading(true);
     const tradeId=Date.now().toString();
     setTrades((p)=>[{id:tradeId,type:contractType,stake:currentStake,profit:null,status:"pending",ts:new Date().toISOString()},...p.slice(0,19)]);
@@ -611,43 +646,99 @@ export default function DerivTraderPage() {
             {/* Settings toggle */}
             <button onClick={()=>setShowSettings((p)=>!p)}
               className="flex items-center gap-1.5 text-[10px] font-rajdhani font-bold text-muted-foreground hover:text-primary transition-colors">
-              <Settings2 size={11}/> {showSettings?"Hide":"Show"} Martingale settings
+              <Settings2 size={11}/> {showSettings?"Hide":"Show"} Settings (Martingale + TP/SL)
               <ChevronDown size={11} className={showSettings?"rotate-180 transition-transform":"transition-transform"}/>
             </button>
             {showSettings && (
-              <div className="pt-2 border-t border-border/50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-4 rounded-full relative cursor-pointer" style={{ background:martingaleOn?"#22c55e":"rgba(255,255,255,0.15)" }}
-                    onClick={()=>{ setMartingaleOn((p)=>!p); setLossStreak(0); }}>
-                    <div className="w-3 h-3 rounded-full absolute top-0.5 transition-all" style={{ left:martingaleOn?"calc(100% - 14px)":"2px",background:"#fff" }}/>
+              <div className="pt-2 border-t border-border/50 space-y-3">
+                {/* Martingale */}
+                <div className="space-y-2">
+                  <div className="font-rajdhani text-[9px] font-bold tracking-widest uppercase text-muted-foreground">Martingale</div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-4 rounded-full relative cursor-pointer" style={{ background:martingaleOn?"#22c55e":"rgba(255,255,255,0.15)" }}
+                      onClick={()=>{ setMartingaleOn((p)=>!p); setLossStreak(0); }}>
+                      <div className="w-3 h-3 rounded-full absolute top-0.5 transition-all" style={{ left:martingaleOn?"calc(100% - 14px)":"2px",background:"#fff" }}/>
+                    </div>
+                    <span className="font-rajdhani text-xs font-bold" style={{ color:martingaleOn?"#22c55e":"#888" }}>Martingale {martingaleOn?"ON":"OFF"}</span>
                   </div>
-                  <span className="font-rajdhani text-xs font-bold" style={{ color:martingaleOn?"#22c55e":"#888" }}>Martingale {martingaleOn?"ON":"OFF"}</span>
+                  {martingaleOn && (
+                    <div className="flex gap-1">
+                      {[1.5,2,2.5,3].map((v)=>(
+                        <button key={v} onClick={()=>setMartMult(v)}
+                          className="px-2 py-1 rounded font-orbitron text-xs font-bold"
+                          style={martMult===v ? { background:"#facc15",color:"#050a0f" } : { background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",color:"#aaa" }}>
+                          {v}×
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {martingaleOn && (
-                  <div className="flex gap-1">
-                    {[1.5,2,2.5,3].map((v)=>(
-                      <button key={v} onClick={()=>setMartMult(v)}
-                        className="px-2 py-1 rounded font-orbitron text-xs font-bold"
-                        style={martMult===v ? { background:"#facc15",color:"#050a0f" } : { background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.12)",color:"#aaa" }}>
-                        {v}×
-                      </button>
-                    ))}
+                {/* Take Profit / Stop Loss */}
+                <div className="space-y-2 pt-2 border-t border-border/40">
+                  <div className="font-rajdhani text-[9px] font-bold tracking-widest uppercase text-muted-foreground">Session TP / SL</div>
+                  {/* Take Profit */}
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-4 rounded-full relative cursor-pointer" style={{ background:tpEnabled?"#22c55e":"rgba(255,255,255,0.15)" }}
+                      onClick={()=>setTpEnabled((p)=>!p)}>
+                      <div className="w-3 h-3 rounded-full absolute top-0.5 transition-all" style={{ left:tpEnabled?"calc(100% - 14px)":"2px",background:"#fff" }}/>
+                    </div>
+                    <span className="font-rajdhani text-[10px] font-bold" style={{ color:tpEnabled?"#22c55e":"#888" }}>TP</span>
+                    <input type="number" min={1} step={1} value={tpAmount} onChange={(e)=>setTpAmount(parseFloat(e.target.value)||10)}
+                      disabled={!tpEnabled}
+                      className="w-16 px-2 py-0.5 rounded font-orbitron text-[10px] bg-background border border-border text-foreground focus:outline-none text-center disabled:opacity-40"/>
+                    <span className="font-rajdhani text-[9px] text-muted-foreground">USD</span>
+                    {tpHit && <span className="font-orbitron text-[9px] font-black" style={{ color:"#22c55e" }}>HIT ✓</span>}
                   </div>
-                )}
+                  {/* Stop Loss */}
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-4 rounded-full relative cursor-pointer" style={{ background:slEnabled?"#ef4444":"rgba(255,255,255,0.15)" }}
+                      onClick={()=>setSlEnabled((p)=>!p)}>
+                      <div className="w-3 h-3 rounded-full absolute top-0.5 transition-all" style={{ left:slEnabled?"calc(100% - 14px)":"2px",background:"#fff" }}/>
+                    </div>
+                    <span className="font-rajdhani text-[10px] font-bold" style={{ color:slEnabled?"#ef4444":"#888" }}>SL</span>
+                    <input type="number" min={1} step={1} value={slAmount} onChange={(e)=>setSlAmount(parseFloat(e.target.value)||5)}
+                      disabled={!slEnabled}
+                      className="w-16 px-2 py-0.5 rounded font-orbitron text-[10px] bg-background border border-border text-foreground focus:outline-none text-center disabled:opacity-40"/>
+                    <span className="font-rajdhani text-[9px] text-muted-foreground">USD</span>
+                    {slHit && <span className="font-orbitron text-[9px] font-black" style={{ color:"#ef4444" }}>HIT ✓</span>}
+                  </div>
+                  {tradingBlocked && (
+                    <button onClick={()=>{ setSessionPL(0); setLossStreak(0); }}
+                      className="w-full py-1 rounded font-rajdhani text-[10px] font-bold"
+                      style={{ background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.15)",color:"#aaa" }}>
+                      Reset Session
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
 
+          {/* TP/SL blocked banner */}
+          {tradingBlocked && (
+            <div className="flex items-center gap-2 p-2.5 rounded-lg"
+              style={{ background: tpHit ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+                       border: `1px solid ${tpHit ? "#22c55e55" : "#ef444455"}` }}>
+              <AlertCircle size={14} style={{ color: tpHit ? "#22c55e" : "#ef4444", flexShrink:0 }}/>
+              <div>
+                <div className="font-orbitron text-xs font-black" style={{ color: tpHit ? "#22c55e" : "#ef4444" }}>
+                  {tpHit ? "TAKE PROFIT HIT" : "STOP LOSS HIT"}
+                </div>
+                <div className="font-rajdhani text-[9px] text-muted-foreground">Trading locked · Reset session to continue</div>
+              </div>
+            </div>
+          )}
+
           {/* Execute buttons */}
           <div className="space-y-2">
             <button onClick={()=>void executeTrade()}
-              disabled={derivWS.status!=="connected"||trading}
+              disabled={derivWS.status!=="connected"||trading||tradingBlocked}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-orbitron text-sm font-black tracking-wider transition-all disabled:opacity-40"
               style={{ background:"#00e5ff",color:"#050a0f",boxShadow:"0 0 20px rgba(0,229,255,0.3)" }}>
               <Play size={14}/> {trading?"Executing…":"Execute Trade"}
             </button>
             <button onClick={()=>setAutoTrade((p)=>!p)}
-              disabled={derivWS.status!=="connected"}
+              disabled={derivWS.status!=="connected"||tradingBlocked}
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-orbitron text-sm font-bold tracking-wider transition-all disabled:opacity-40"
               style={autoTrade
                 ? { background:"rgba(239,68,68,0.2)",border:"2px solid #ef4444",color:"#ef4444" }
@@ -656,7 +747,7 @@ export default function DerivTraderPage() {
             </button>
           </div>
 
-          {autoTrade && <div className="flex items-center gap-2 text-xs font-rajdhani" style={{ color:"#22c55e" }}>
+          {autoTrade && !tradingBlocked && <div className="flex items-center gap-2 text-xs font-rajdhani" style={{ color:"#22c55e" }}>
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"/>Auto-trading active
           </div>}
 

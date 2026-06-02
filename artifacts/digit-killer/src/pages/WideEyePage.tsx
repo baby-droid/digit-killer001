@@ -131,12 +131,12 @@ function DCircleGauge({ digit, percentage, count, isCurrent, isMost, isLeast }: 
   const R = 30; const CX = 36; const CY = 36;
   const circ = 2 * Math.PI * R;
   const filled = circ * (percentage / 100);
+  // Arc-tip cursor: dot at END of filled arc (Deriv.com accurate style)
+  const tipAngle = -Math.PI / 2 + (percentage / 100) * 2 * Math.PI;
+  const tipX = CX + R * Math.cos(tipAngle);
+  const tipY = CY + R * Math.sin(tipAngle);
   return (
     <div className="flex flex-col items-center select-none min-w-0">
-      <div className="h-4 flex items-end justify-center mb-0.5">
-        {isMost && !isCurrent && <span style={{ color: "#00e5ff", fontSize: 10, fontWeight: "bold" }}>▲</span>}
-        {isLeast && <span style={{ color: "#ff4d4d", fontSize: 10, fontWeight: "bold" }}>▽</span>}
-      </div>
       <svg viewBox="0 0 72 72" style={{ width: "clamp(48px,7vw,70px)", height: "clamp(48px,7vw,70px)",
         filter: isCurrent ? `drop-shadow(0 0 8px ${color}cc)` : undefined }}>
         <circle cx={CX} cy={CY} r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={6} />
@@ -151,6 +151,17 @@ function DCircleGauge({ digit, percentage, count, isCurrent, isMost, isLeast }: 
           fontSize={isCurrent ? 16 : 14}>
           {digit}
         </text>
+        {/* Accurate arc-tip cursor dot on circumference (Deriv.com style) */}
+        {isCurrent && (
+          <circle cx={tipX} cy={tipY} r={5} fill="#ff1e9e"
+            style={{ filter: "drop-shadow(0 0 6px #ff1e9e)", transition: "cx 0.5s ease, cy 0.5s ease" }} />
+        )}
+        {isMost && !isCurrent && (
+          <circle cx={tipX} cy={tipY} r={3.5} fill="#00e5ff" opacity={0.9} />
+        )}
+        {isLeast && !isCurrent && (
+          <circle cx={tipX} cy={tipY} r={3.5} fill="#ff4d4d" opacity={0.9} />
+        )}
       </svg>
       <div className="font-orbitron font-bold text-center"
         style={{ fontSize: "clamp(9px,1.4vw,11px)", color: isCurrent ? color : "rgba(255,255,255,0.55)" }}>
@@ -158,9 +169,6 @@ function DCircleGauge({ digit, percentage, count, isCurrent, isMost, isLeast }: 
       </div>
       <div className="font-rajdhani text-center" style={{ fontSize: "9px", color: "rgba(255,255,255,0.25)" }}>
         {count}
-      </div>
-      <div className="h-3 flex items-start justify-center mt-0.5">
-        {isCurrent && <span style={{ color, fontSize: 11, fontWeight: "bold" }}>▲</span>}
       </div>
     </div>
   );
