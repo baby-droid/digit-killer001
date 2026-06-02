@@ -2,3 +2,5 @@
 - [Real-time tick stream](tick-stream-arch.md) — tickStream.ts maintains persistent WS per symbol; fetchTickHistory serves from buffer first for instant response.
 - [Dropdown stacking context](dropdown-z-index.md) — backdrop-blur on header creates stacking context; SymbolDropdown uses position:fixed + bounding rect to escape it.
 - [Auth gate pattern](auth-gate.md) — localStorage user_token/admin_token; Protected component in App.tsx; Splash checks token → /dashboard or /login.
+- [Global Deriv WS context](deriv-context-arch.md) — DerivContext.tsx wraps entire app; one shared WebSocket per session; all trading pages use useDerivContext(); auto-restores from localStorage deriv_token on mount.
+- [Trade engine accuracy](trade-engine-accuracy.md) — accurate win/loss uses proposal_open_contract subscription (not polling); bulk trades fire parallel proposal+buy via Promise.all; DerivConnectionBar is required on every trading page.

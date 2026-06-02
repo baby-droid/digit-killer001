@@ -5,6 +5,7 @@ import {
 import { useSymbol } from "@/context/SymbolContext";
 import { TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown, AlertCircle } from "lucide-react";
 import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
+import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 interface ContractSignal {
   contract_type: string;
@@ -234,7 +235,8 @@ export default function TickAnalyserPage() {
         </div>
       )}
 
-      {/* Auto Trade Panel */}
+      {/* Deriv Connection + Auto Trade Panel */}
+      <DerivConnectionBar />
       <AutoTradePanel
         symbol={symbol}
         pageLabel="Tick Analyser"

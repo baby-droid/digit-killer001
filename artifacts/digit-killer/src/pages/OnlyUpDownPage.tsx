@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSymbol } from "@/context/SymbolContext";
 import { ArrowUp, ArrowDown, RefreshCw, AlertCircle, Brain, BarChart2 } from "lucide-react";
 import AutoTradePanel from "@/components/AutoTradePanel";
+import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 interface RunDist { length: number; count: number; pct: number }
 interface ContractSig { signal: string; confidence: number; duration: number; reasons: string[]; risk_level: string; psych_score?: number; psych_favors_win?: boolean; psych_win_rate_10?: number; psych_streak?: number; }
@@ -248,7 +249,8 @@ export default function OnlyUpDownPage() {
             <SignalCard data={oud.only_down} type="down" />
           </div>
 
-          {/* Auto Trade */}
+          {/* Deriv Connection + Auto Trade */}
+          <DerivConnectionBar />
           <AutoTradePanel
             symbol={symbol}
             pageLabel="Only Up / Only Down"

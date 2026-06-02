@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSymbol } from "@/context/SymbolContext";
 import { ArrowUpDown, RefreshCw, AlertCircle, Brain, TrendingUp, TrendingDown } from "lucide-react";
 import AutoTradePanel from "@/components/AutoTradePanel";
+import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 interface TickFreq { tick: number; count: number; pct: number }
 interface TickSig { signal: string; confidence: number; tick_position: number; frequency_pct: number; reasons: string[] }
@@ -342,7 +343,8 @@ export default function HighLowTickPage() {
             <SignalCard data={hlt.low_tick} type="low" />
           </div>
 
-          {/* Auto Trade */}
+          {/* Deriv Connection + Auto Trade */}
+          <DerivConnectionBar />
           <AutoTradePanel
             symbol={symbol}
             pageLabel="High / Low Tick"
