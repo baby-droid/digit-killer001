@@ -4,7 +4,7 @@ import { ArrowUp, ArrowDown, RefreshCw, AlertCircle, Brain, BarChart2 } from "lu
 import AutoTradePanel from "@/components/AutoTradePanel";
 
 interface RunDist { length: number; count: number; pct: number }
-interface ContractSig { signal: string; confidence: number; duration: number; reasons: string[]; risk_level: string }
+interface ContractSig { signal: string; confidence: number; duration: number; reasons: string[]; risk_level: string; psych_score?: number; psych_favors_win?: boolean; psych_win_rate_10?: number; psych_streak?: number; }
 interface OnlyUpDownData {
   symbol: string;
   current_price: number;
@@ -253,8 +253,22 @@ export default function OnlyUpDownPage() {
             symbol={symbol}
             pageLabel="Only Up / Only Down"
             signals={[
-              { label: "Only Up (CALL)",  contract_type: "CALL", confidence: oud.only_up.confidence,   ticks: oud.only_up.duration   },
-              { label: "Only Down (PUT)", contract_type: "PUT",  confidence: oud.only_down.confidence, ticks: oud.only_down.duration },
+              {
+                label: "Only Up (CALL)", contract_type: "CALL",
+                confidence: oud.only_up.confidence, ticks: oud.only_up.duration,
+                psych_favors_win: oud.only_up.psych_favors_win,
+                psych_score: oud.only_up.psych_score,
+                psych_win_rate_10: oud.only_up.psych_win_rate_10,
+                psych_streak: oud.only_up.psych_streak,
+              },
+              {
+                label: "Only Down (PUT)", contract_type: "PUT",
+                confidence: oud.only_down.confidence, ticks: oud.only_down.duration,
+                psych_favors_win: oud.only_down.psych_favors_win,
+                psych_score: oud.only_down.psych_score,
+                psych_win_rate_10: oud.only_down.psych_win_rate_10,
+                psych_streak: oud.only_down.psych_streak,
+              },
             ]}
           />
 

@@ -8,6 +8,7 @@ import {
   computeAiSignals,
   computeStrategySignal,
   computeEnhancedTickAnalysis,
+  computeDigitPsychology,
 } from "../lib/analysis";
 
 const router: IRouter = Router();
@@ -181,9 +182,40 @@ router.get("/over-under-signals", async (req, res): Promise<void> => {
     }
 
     const digits = analyseDigits(prices, pipSize);
-    const signals = computeOverUnderSignals(digits, prices, pipSize);
+    const raw = computeOverUnderSignals(digits, prices, pipSize);
 
-    res.json({ symbol, digits, ...signals });
+    // Augment each entry with digit psychology
+    const entriesWithPsych = (raw.entries ?? []).map((entry: Record<string, unknown>) => {
+      const ct = (entry.direction as string) === "OVER" ? "DIGITOVER" : "DIGITUNDER";
+      const barrier = entry.entry_digit as number | undefined;
+      const psych = computeDigitPsychology(prices, pipSize, ct, barrier);
+      return {
+        ...entry,
+        psych_score: psych.psych_score,
+        psych_favors_win: psych.favors_win,
+        psych_win_rate_10: psych.win_rate_10,
+        psych_win_rate_5: psych.win_rate_5,
+        psych_streak: psych.streak,
+        psych_momentum: psych.momentum,
+        psych_reason: psych.reason,
+      };
+    });
+
+    // Top-level best-entry psychology
+    const bestEntryDir = raw.recommendation === "OVER" ? "DIGITOVER" : "DIGITUNDER";
+    const bestBarrier  = raw.recommendation === "OVER" ? raw.best_over_barrier : raw.best_under_barrier;
+    const overallPsych = computeDigitPsychology(prices, pipSize, bestEntryDir, bestBarrier as number | undefined);
+
+    res.json({
+      symbol, digits,
+      ...raw,
+      entries: entriesWithPsych,
+      psych_score: overallPsych.psych_score,
+      psych_favors_win: overallPsych.favors_win,
+      psych_win_rate_10: overallPsych.win_rate_10,
+      psych_streak: overallPsych.streak,
+      psych_momentum: overallPsych.momentum,
+    });
   } catch (err) {
     req.log.error({ err, symbol }, "over-under-signals error");
     res.status(500).json({ error: "Failed to fetch over/under signals" });
@@ -209,7 +241,29 @@ router.get("/even-odd-analysis", async (req, res): Promise<void> => {
     }
 
     const result = computeEvenOddAnalysis(prices, pipSize);
-    res.json({ symbol, ...result });
+    const evenPsych = computeDigitPsychology(prices, pipSize, "DIGITEVEN");
+    const oddPsych  = computeDigitPsychology(prices, pipSize, "DIGITODD");
+    res.json({
+      symbol, ...result,
+      even_psychology: {
+        psych_score: evenPsych.psych_score,
+        favors_win: evenPsych.favors_win,
+        win_rate_10: evenPsych.win_rate_10,
+        win_rate_5: evenPsych.win_rate_5,
+        streak: evenPsych.streak,
+        momentum: evenPsych.momentum,
+        reason: evenPsych.reason,
+      },
+      odd_psychology: {
+        psych_score: oddPsych.psych_score,
+        favors_win: oddPsych.favors_win,
+        win_rate_10: oddPsych.win_rate_10,
+        win_rate_5: oddPsych.win_rate_5,
+        streak: oddPsych.streak,
+        momentum: oddPsych.momentum,
+        reason: oddPsych.reason,
+      },
+    });
   } catch (err) {
     req.log.error({ err, symbol }, "even-odd-analysis error");
     res.status(500).json({ error: "Failed to fetch even/odd analysis" });
@@ -236,7 +290,18 @@ router.get("/match-differ-signals", async (req, res): Promise<void> => {
 
     const digits = analyseDigits(prices, pipSize);
     const signals = computeMatchDifferSignals(digits, prices, pipSize);
-    res.json({ symbol, digits, ...signals });
+
+    // Augment best match and differ with psychology
+    const bestMatch  = (signals as Record<string, unknown>).best_match_digit as number | undefined;
+    const bestDiffer = (signals as Record<string, unknown>).best_differ_digit as number | undefined;
+    const matchPsych  = bestMatch  !== undefined ? computeDigitPsychology(prices, pipSize, "DIGITMATCH",  undefined, bestMatch)  : null;
+    const differPsych = bestDiffer !== undefined ? computeDigitPsychology(prices, pipSize, "DIGITDIFF", undefined, bestDiffer) : null;
+
+    res.json({
+      symbol, digits, ...signals,
+      match_psychology:  matchPsych  ? { psych_score: matchPsych.psych_score,  favors_win: matchPsych.favors_win,  win_rate_10: matchPsych.win_rate_10,  win_rate_5: matchPsych.win_rate_5,  streak: matchPsych.streak,  momentum: matchPsych.momentum,  reason: matchPsych.reason  } : null,
+      differ_psychology: differPsych ? { psych_score: differPsych.psych_score, favors_win: differPsych.favors_win, win_rate_10: differPsych.win_rate_10, win_rate_5: differPsych.win_rate_5, streak: differPsych.streak, momentum: differPsych.momentum, reason: differPsych.reason } : null,
+    });
   } catch (err) {
     req.log.error({ err, symbol }, "match-differ-signals error");
     res.status(500).json({ error: "Failed to fetch match/differ signals" });
@@ -304,7 +369,55 @@ router.get("/enhanced-tick-analysis", async (req, res): Promise<void> => {
     const prices = await fetchTickHistory(symbol, count);
     if (!prices.length) { res.status(404).json({ error: "No tick data" }); return; }
     const result = computeEnhancedTickAnalysis(symbol, prices, pipSize);
-    res.json(result);
+
+    // Add psychology to each trade signal in the enhanced analysis
+    const risePsych    = computeDigitPsychology(prices, pipSize, "CALL");
+    const fallPsych    = computeDigitPsychology(prices, pipSize, "PUT");
+    const onlyUpPsych  = computeDigitPsychology(prices, pipSize, "CALL");
+    const onlyDnPsych  = computeDigitPsychology(prices, pipSize, "PUT");
+
+    res.json({
+      ...result,
+      rise_fall: {
+        rise: {
+          ...result.rise_fall.rise,
+          psych_score: risePsych.psych_score,
+          psych_favors_win: risePsych.favors_win,
+          psych_win_rate_10: risePsych.win_rate_10,
+          psych_win_rate_5: risePsych.win_rate_5,
+          psych_streak: risePsych.streak,
+          psych_momentum: risePsych.momentum,
+          psych_reason: risePsych.reason,
+        },
+        fall: {
+          ...result.rise_fall.fall,
+          psych_score: fallPsych.psych_score,
+          psych_favors_win: fallPsych.favors_win,
+          psych_win_rate_10: fallPsych.win_rate_10,
+          psych_win_rate_5: fallPsych.win_rate_5,
+          psych_streak: fallPsych.streak,
+          psych_momentum: fallPsych.momentum,
+          psych_reason: fallPsych.reason,
+        },
+      },
+      only_up_down: {
+        ...result.only_up_down,
+        only_up: {
+          ...result.only_up_down.only_up,
+          psych_score: onlyUpPsych.psych_score,
+          psych_favors_win: onlyUpPsych.favors_win,
+          psych_win_rate_10: onlyUpPsych.win_rate_10,
+          psych_streak: onlyUpPsych.streak,
+        },
+        only_down: {
+          ...result.only_up_down.only_down,
+          psych_score: onlyDnPsych.psych_score,
+          psych_favors_win: onlyDnPsych.favors_win,
+          psych_win_rate_10: onlyDnPsych.win_rate_10,
+          psych_streak: onlyDnPsych.streak,
+        },
+      },
+    });
   } catch (err) {
     req.log.error({ err, symbol }, "enhanced-tick-analysis error");
     res.status(500).json({ error: "Failed to compute enhanced tick analysis" });

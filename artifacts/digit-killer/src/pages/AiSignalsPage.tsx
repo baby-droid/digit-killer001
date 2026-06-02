@@ -23,6 +23,12 @@ interface AiSignal {
   timestamp: string;
   reason: string;
   risk_level: string;
+  psych_score?: number;
+  psych_favors_win?: boolean;
+  win_rate_5?: number;
+  win_rate_10?: number;
+  psych_streak?: number;
+  psych_momentum?: string;
 }
 
 interface MarketState {
@@ -274,13 +280,25 @@ function SignalFlyer({ signal }: { signal: AiSignal }) {
   const contractColor = CONTRACT_COLOR[signal.contract_type] ?? "#00e5ff";
   const digitColor = DIGIT_COLORS[signal.entry_digit] ?? "#fff";
   const timeStr = new Date(signal.timestamp).toLocaleString();
+  const psychOK = signal.psych_favors_win !== false;
+  const psychColor = signal.psych_score !== undefined ? (signal.psych_score >= 65 ? "#22c55e" : signal.psych_score >= 55 ? "#facc15" : "#ef4444") : "#666";
+
   return (
     <div
       id={`flyer-${signal.id}`}
       className="cyber-card p-5 relative overflow-hidden"
-      style={{ border: `1px solid ${contractColor}40`, boxShadow: `0 0 20px ${contractColor}18` }}
+      style={{
+        border: `1px solid ${psychOK ? contractColor + "40" : "rgba(239,68,68,0.3)"}`,
+        boxShadow: `0 0 20px ${psychOK ? contractColor + "18" : "rgba(239,68,68,0.06)"}`,
+        opacity: psychOK ? 1 : 0.7,
+      }}
     >
-      <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: `linear-gradient(90deg, transparent, ${contractColor}, transparent)` }} />
+      <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: `linear-gradient(90deg, transparent, ${psychOK ? contractColor : "#ef4444"}, transparent)` }} />
+      {!psychOK && (
+        <div className="absolute top-2 right-2 px-2 py-0.5 rounded font-orbitron text-[9px] font-bold" style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" }}>
+          ⛔ PSYCH BLOCKED
+        </div>
+      )}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-2">
           <img src={logoPath} alt="logo" className="w-7 h-7 rounded-full object-cover" />
@@ -292,6 +310,11 @@ function SignalFlyer({ signal }: { signal: AiSignal }) {
         <div className="flex flex-col items-end gap-1">
           <span className="font-orbitron text-xs font-bold px-2 py-0.5 rounded" style={{ background: `${contractColor}20`, color: contractColor, border: `1px solid ${contractColor}40` }}>{signal.contract_type}</span>
           <span className={`risk-${signal.risk_level?.toLowerCase() ?? "medium"} text-[10px]`}>{signal.risk_level}</span>
+          {signal.psych_score !== undefined && (
+            <span className="font-orbitron text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: `${psychColor}18`, color: psychColor, border: `1px solid ${psychColor}30` }}>
+              ψ{signal.psych_score.toFixed(0)}
+            </span>
+          )}
         </div>
       </div>
       <div className="text-center mb-4 py-3 rounded-lg" style={{ background: `${contractColor}08` }}>
@@ -803,17 +826,25 @@ function useComprehensiveSignals(symbol: string): { signals: TradeSignal[]; load
             ticks: parseInt(String(e.recommended_ticks ?? "1").split("-")[0]) || 1,
             barrier: parseInt(parts[1] ?? "4"),
             label: contract,
+            psych_favors_win: e.psych_favors_win as boolean | undefined,
+            psych_score: e.psych_score as number | undefined,
+            psych_win_rate_10: e.psych_win_rate_10 as number | undefined,
           };
         });
 
         const evenOdd: TradeSignal[] = [];
         const activeSignal = eo?.active_signal as string | null;
         if (activeSignal) {
+          const isEven = activeSignal === "BUY EVEN";
+          const psych = (isEven ? eo?.even_psychology : eo?.odd_psychology) as Record<string, unknown> | undefined;
           evenOdd.push({
-            contract_type: activeSignal === "BUY EVEN" ? "DIGITEVEN" : "DIGITODD",
+            contract_type: isEven ? "DIGITEVEN" : "DIGITODD",
             confidence: Number(eo?.confidence ?? 50),
             ticks: Number(eo?.ticks ?? 3),
             label: activeSignal,
+            psych_favors_win: psych?.favors_win as boolean | undefined,
+            psych_score: psych?.psych_score as number | undefined,
+            psych_win_rate_10: psych?.win_rate_10 as number | undefined,
           });
         }
 
@@ -831,8 +862,10 @@ function useComprehensiveSignals(symbol: string): { signals: TradeSignal[]; load
         const matchConf = Number(md?.match_confidence ?? 50);
         const bestDiffer = Number(md?.best_differ ?? 9);
         const differConf = Number(md?.differ_confidence ?? 50);
-        if (matchConf > 0) matchDiffer.push({ contract_type: "DIGITMATCH", confidence: matchConf, ticks: 5, digit: bestMatch, label: `Match ${bestMatch}` });
-        if (differConf > 0) matchDiffer.push({ contract_type: "DIGITDIFF", confidence: differConf, ticks: 5, digit: bestDiffer, label: `Differ ${bestDiffer}` });
+        const matchPsych  = (md?.match_psychology  as Record<string,unknown> | null) ?? null;
+        const differPsych = (md?.differ_psychology as Record<string,unknown> | null) ?? null;
+        if (matchConf > 0)  matchDiffer.push({ contract_type: "DIGITMATCH", confidence: matchConf,  ticks: 5, digit: bestMatch,  label: `Match ${bestMatch}`,  psych_favors_win: matchPsych?.favors_win  as boolean|undefined, psych_score: matchPsych?.psych_score  as number|undefined, psych_win_rate_10: matchPsych?.win_rate_10  as number|undefined });
+        if (differConf > 0) matchDiffer.push({ contract_type: "DIGITDIFF",  confidence: differConf, ticks: 5, digit: bestDiffer, label: `Differ ${bestDiffer}`, psych_favors_win: differPsych?.favors_win as boolean|undefined, psych_score: differPsych?.psych_score as number|undefined, psych_win_rate_10: differPsych?.win_rate_10 as number|undefined });
 
         setData({ overUnder, evenOdd, riseFall, matchDiffer });
       } catch {
@@ -866,7 +899,7 @@ function ComprehensiveSignalsBoard({ symbol }: { symbol: string }) {
       <div className="flex items-center gap-2 justify-between">
         <div className="flex items-center gap-2">
           <Zap size={14} className="text-primary" />
-          <span className="font-orbitron text-sm font-bold text-primary tracking-wider">COMPREHENSIVE SIGNAL BOARD</span>
+          <span className="font-orbitron text-sm font-bold text-primary tracking-wider">ALL SIGNAL TYPES · PSYCH GATED</span>
         </div>
         <div className="flex items-center gap-2">
           {loading && <div className="w-3 h-3 border border-primary/30 border-t-primary rounded-full animate-spin" />}
@@ -890,21 +923,34 @@ function ComprehensiveSignalsBoard({ symbol }: { symbol: string }) {
             ) : (
               sigs.map((sig, i) => {
                 const conf = sig.confidence;
-                const confColor = conf >= 85 ? "#22c55e" : conf >= 70 ? "#facc15" : "#888";
+                const psychOK = sig.psych_favors_win !== false;
+                const psychBlocked = sig.psych_favors_win === false;
+                const confColor = psychBlocked ? "#666" : conf >= 85 ? "#22c55e" : conf >= 70 ? "#facc15" : "#888";
+                const psychScore = sig.psych_score;
+                const psychCol = psychScore !== undefined ? (psychScore >= 65 ? "#22c55e" : psychScore >= 55 ? "#facc15" : "#ef4444") : null;
                 return (
                   <div key={i} className="flex items-center gap-2 p-2 rounded-lg"
                     style={{
-                      background: conf >= 85 ? `${color}12` : "rgba(255,255,255,0.03)",
-                      border: `1px solid ${conf >= 85 ? color + "40" : "rgba(255,255,255,0.07)"}`,
+                      background: psychBlocked ? "rgba(239,68,68,0.04)" : conf >= 85 ? `${color}12` : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${psychBlocked ? "rgba(239,68,68,0.2)" : conf >= 85 && psychOK ? color + "40" : "rgba(255,255,255,0.07)"}`,
+                      opacity: psychBlocked ? 0.55 : 1,
                     }}>
-                    {conf >= 85 && <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse" style={{ background: confColor }} />}
+                    {conf >= 85 && psychOK && <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse" style={{ background: confColor }} />}
+                    {psychBlocked && <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-red-500/60" />}
                     <div className="flex-1 min-w-0">
-                      <div className="font-orbitron text-[10px] font-bold truncate" style={{ color }}>
+                      <div className="font-orbitron text-[10px] font-bold truncate" style={{ color: psychBlocked ? "#666" : color }}>
                         {sig.label}
                       </div>
                     </div>
-                    <div className="font-orbitron text-[10px] font-bold flex-shrink-0" style={{ color: confColor }}>
-                      {conf.toFixed(0)}%
+                    <div className="flex items-center gap-1">
+                      <div className="font-orbitron text-[10px] font-bold flex-shrink-0" style={{ color: confColor }}>
+                        {conf.toFixed(0)}%
+                      </div>
+                      {psychCol && (
+                        <div className="font-orbitron text-[9px] px-1 rounded flex-shrink-0" style={{ background: `${psychCol}15`, color: psychCol }}>
+                          ψ{(psychScore ?? 0).toFixed(0)}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

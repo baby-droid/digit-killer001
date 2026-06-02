@@ -13,6 +13,10 @@ export interface TradeSignal {
   digit?: number;
   label: string;
   direction?: string;
+  psych_favors_win?: boolean;  // undefined = no psychology data (neutral); false = blocked
+  psych_score?: number;        // 0-100
+  psych_win_rate_10?: number;  // % of last 10 ticks that would have won
+  psych_streak?: number;       // positive = wins, negative = losses
 }
 
 interface TradeResult {
@@ -177,8 +181,14 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
 
   const deriv = useDerivWS();
 
-  const readySignals = signals.filter((s) => s.confidence >= MIN_CONFIDENCE);
-  const bestSignal   = readySignals.sort((a, b) => b.confidence - a.confidence)[0] ?? null;
+  // Psychology gate: a signal is only "ready" when:
+  //   1. Confidence ≥ threshold, AND
+  //   2. Psychology does NOT explicitly block it (psych_favors_win !== false)
+  //   3. Wins > losses in recent history (when psych data present)
+  const readySignals = signals
+    .filter((s) => s.confidence >= MIN_CONFIDENCE && s.psych_favors_win !== false)
+    .sort((a, b) => b.confidence - a.confidence);
+  const bestSignal = readySignals[0] ?? null;
 
   const tpHit = tpEnabled  && sessionPL >= tpAmount;
   const slHit = slEnabled  && sessionPL <= -slAmount;
@@ -284,10 +294,16 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
     setBulkExecuting(false);
   }
 
-  // Auto-trade: fire immediately when a new qualifying signal appears (near-instant execution)
+  // Auto-trade: fire immediately when a new qualifying signal appears.
+  // Psychology gate: skip if psych_favors_win is explicitly false
+  // Wins > losses gate: skip if psych_win_rate_10 < 50 (more losses than wins)
   const lastAutoSigRef = useRef("");
   useEffect(() => {
     if (!autoMode || !bestSignal || deriv.status !== "connected" || executing || blocked) return;
+    // Psychology block: don't trade if recent history favors the losing side
+    if (bestSignal.psych_favors_win === false) return;
+    // Wins > losses: if we have win rate data, require >50% wins in last 10
+    if (bestSignal.psych_win_rate_10 !== undefined && bestSignal.psych_win_rate_10 < 50) return;
     const sigKey = `${bestSignal.contract_type}-${bestSignal.confidence.toFixed(1)}-${bestSignal.label}`;
     if (sigKey === lastAutoSigRef.current) return;
     lastAutoSigRef.current = sigKey;
@@ -544,14 +560,26 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
             <div>
               <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-2 flex items-center gap-2">
                 <Zap size={10} className="text-primary" />
-                SIGNALS ≥{MIN_CONFIDENCE}% CONFIDENCE
+                SIGNALS ≥{MIN_CONFIDENCE}% · PSYCH GATED
                 <span className="ml-1 font-orbitron text-[10px]" style={{ color: readySignals.length > 0 ? "#22c55e" : "#888" }}>
                   ({readySignals.length} ready)
                 </span>
               </div>
+              {/* Psychology-blocked signals indicator */}
+              {(() => {
+                const psychBlocked = signals.filter(s => s.confidence >= MIN_CONFIDENCE && s.psych_favors_win === false);
+                return psychBlocked.length > 0 ? (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg mb-2" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                    <AlertCircle size={10} className="text-red-400 flex-shrink-0" />
+                    <span className="font-rajdhani text-[10px] text-red-400">
+                      {psychBlocked.length} signal{psychBlocked.length > 1 ? "s" : ""} blocked by psychology gate (losing bias detected)
+                    </span>
+                  </div>
+                ) : null;
+              })()}
               {readySignals.length === 0 ? (
                 <div className="text-center py-3 font-rajdhani text-xs text-muted-foreground">
-                  No signals above {MIN_CONFIDENCE}% confidence yet
+                  No signals pass confidence + psychology filters
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -564,6 +592,17 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
                       <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                       <span className="font-orbitron text-[10px] font-bold text-green-400">{sig.label}</span>
                       <span className="font-rajdhani text-[9px] text-muted-foreground">{sig.confidence.toFixed(0)}%</span>
+                      {sig.psych_score !== undefined && (
+                        <span
+                          className="font-rajdhani text-[9px] font-bold px-1 rounded"
+                          style={{
+                            background: sig.psych_score >= 65 ? "rgba(34,197,94,0.15)" : sig.psych_score >= 55 ? "rgba(250,204,21,0.12)" : "rgba(239,68,68,0.12)",
+                            color: sig.psych_score >= 65 ? "#22c55e" : sig.psych_score >= 55 ? "#facc15" : "#ef4444",
+                          }}
+                        >
+                          ψ{sig.psych_score.toFixed(0)}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -611,9 +650,23 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
             </div>
 
             {autoMode && (
-              <div className="flex items-center gap-2 font-rajdhani text-xs" style={{ color: "#22c55e" }}>
-                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                Auto-trading active — fires when confidence ≥{MIN_CONFIDENCE}%
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 font-rajdhani text-xs" style={{ color: "#22c55e" }}>
+                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  Auto-trading active — confidence ≥{MIN_CONFIDENCE}% + psychology OK
+                </div>
+                {bestSignal?.psych_favors_win === false && (
+                  <div className="flex items-center gap-2 font-rajdhani text-xs text-red-400">
+                    <AlertCircle size={11} />
+                    Paused — psychology gate: recent digits favor the losing side
+                  </div>
+                )}
+                {bestSignal?.psych_win_rate_10 !== undefined && bestSignal.psych_win_rate_10 < 50 && bestSignal.psych_favors_win !== false && (
+                  <div className="flex items-center gap-2 font-rajdhani text-xs text-yellow-400">
+                    <AlertCircle size={11} />
+                    Caution — W10: {bestSignal.psych_win_rate_10.toFixed(0)}% (wins &lt; losses in last 10)
+                  </div>
+                )}
               </div>
             )}
           </>

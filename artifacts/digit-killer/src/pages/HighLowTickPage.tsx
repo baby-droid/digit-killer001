@@ -351,6 +351,8 @@ export default function HighLowTickPage() {
               { label: "Low Tick",  contract_type: "LOWERTICK",  confidence: hlt.low_tick.confidence,  ticks: 5, barrier: hlt.best_low_tick  },
             ]}
           />
+          {/* Note: High/Low Tick uses price position-based analysis — psychology scores
+              come from Rise/Fall CALL/PUT which are equivalent directional bets */}
 
           {/* Markov + autocorr summary */}
           <div className="cyber-card p-4">

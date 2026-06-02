@@ -60,7 +60,7 @@ interface SymbolStat {
 }
 interface AccountInfo { loginid:string;currency:string;balance:number;is_virtual:boolean; }
 interface AccountItem  { loginid:string;currency:string;is_virtual:number;token?:string; }
-interface AiSignal     { contract_type:string;direction:string;ticks:number;confidence:number;barrier?:number;digit?:number;reason:string; }
+interface AiSignal     { contract_type:string;direction:string;ticks:number;confidence:number;barrier?:number;digit?:number;reason:string;psych_favors_win?:boolean;psych_score?:number;win_rate_5?:number;win_rate_10?:number; }
 
 /* ── Multi-symbol feed ───────────────────────────────────────────────────── */
 function useMultiSymbolFeed(symbols: typeof TRACKED_SYMBOLS, activeGroup: string) {
@@ -344,32 +344,70 @@ export default function DerivTraderPage() {
         fetch(`/api/match-differ-signals?symbol=${sym}`).then(r=>r.json()).catch(()=>({})),
       ]).then(([ai, ou, eo, tc, md])=>{
         const all:AiSignal[]=[];
-        // AI signals
-        const aiSigs=(ai.signals as Array<AiSignal&{reasoning?:string}>|undefined)??[];
-        aiSigs.forEach(s=>all.push({...s,reason:s.reason??s.reasoning??""}));
-        // Over/Under
-        type OUSig={contract_type:string;direction:string;confidence:number;ticks?:number;barrier?:number;reason?:string};
+        // AI signals (comprehensive — already includes all contract types with psychology)
+        type ExtAiSig = AiSignal & {
+          reasoning?: string;
+          psych_favors_win?: boolean; psych_score?: number;
+          win_rate_5?: number; win_rate_10?: number;
+          psych_streak?: number; psych_momentum?: string;
+        };
+        const aiSigs=(ai.signals as ExtAiSig[]|undefined)??[];
+        aiSigs.forEach(s=>all.push({
+          ...s,
+          reason: s.reason??s.reasoning??"",
+          psych_favors_win: s.psych_favors_win,
+          psych_score: s.psych_score,
+          win_rate_5: s.win_rate_5,
+          win_rate_10: s.win_rate_10,
+        }));
+        // Over/Under (from /api/over-under-signals — these now include psych fields)
+        type OUSig={contract_type?:string;direction:string;confidence:number;ticks?:number;barrier?:number;reason?:string;psych_favors_win?:boolean;psych_score?:number;psych_win_rate_10?:number;};
         const ouSigs=(ou.signals as OUSig[]|undefined)??[];
-        ouSigs.forEach(s=>all.push({contract_type:s.contract_type??((s.direction==="OVER")?"DIGITOVER":"DIGITUNDER"),direction:s.direction,ticks:s.ticks??5,confidence:s.confidence,barrier:s.barrier,reason:s.reason??"Over/Under signal"}));
-        // Even/Odd
-        if (eo.recommendation) {
-          const eRec=eo as {recommendation?:string;even_pct?:number;odd_pct?:number;confidence?:number};
-          const ct=(eRec.recommendation==="EVEN")?"DIGITEVEN":"DIGITODD";
+        ouSigs.forEach(s=>all.push({
+          contract_type:s.contract_type??((s.direction==="OVER")?"DIGITOVER":"DIGITUNDER"),
+          direction:s.direction,ticks:s.ticks??5,confidence:s.confidence,barrier:s.barrier,
+          reason:s.reason??"Over/Under signal",
+          psych_favors_win:s.psych_favors_win, psych_score:s.psych_score, win_rate_10:s.psych_win_rate_10,
+        }));
+        // Even/Odd with psychology from /api/even-odd-analysis
+        if ((eo as {recommendation?:string}).recommendation) {
+          const eRec=eo as {recommendation?:string;even_pct?:number;odd_pct?:number;confidence?:number;even_psychology?:{favors_win?:boolean;psych_score?:number;win_rate_10?:number;};odd_psychology?:{favors_win?:boolean;psych_score?:number;win_rate_10?:number;}};
+          const isEven=(eRec.recommendation==="EVEN");
+          const ct=isEven?"DIGITEVEN":"DIGITODD";
           const conf=Math.max(eRec.even_pct??0,eRec.odd_pct??0);
-          all.push({contract_type:ct,direction:eRec.recommendation??"",ticks:5,confidence:conf,reason:"Even/Odd signal"});
+          const psych=isEven?eRec.even_psychology:eRec.odd_psychology;
+          all.push({contract_type:ct,direction:eRec.recommendation??"",ticks:5,confidence:conf,reason:"Even/Odd signal",
+            psych_favors_win:psych?.favors_win, psych_score:psych?.psych_score, win_rate_10:psych?.win_rate_10});
         }
-        // Tick contracts (Rise/Fall)
-        type TCSig={signal?:string;contract_type?:string;confidence?:number;duration?:number;direction?:string;reason?:string};
+        // Tick contracts (Rise/Fall) with psychology
+        type TCSig={signal?:string;contract_type?:string;confidence?:number;duration?:number;direction?:string;reason?:string;psych_favors_win?:boolean;psych_score?:number;};
         const rfSigs=(tc.signals as TCSig[]|undefined)??[];
-        rfSigs.forEach(s=>all.push({contract_type:s.contract_type??((s.direction==="RISE"||s.signal==="RISE")?"CALL":"PUT"),direction:s.direction??s.signal??"",ticks:s.duration??5,confidence:s.confidence??0,reason:s.reason??"Rise/Fall signal"}));
-        // Match/Differ
-        type MDSig={contract_type?:string;digit?:number;confidence?:number;direction?:string;reason?:string;ticks?:number};
+        rfSigs.forEach(s=>all.push({
+          contract_type:s.contract_type??((s.direction==="RISE"||s.signal==="RISE")?"CALL":"PUT"),
+          direction:s.direction??s.signal??"",ticks:s.duration??5,confidence:s.confidence??0,
+          reason:s.reason??"Rise/Fall signal",
+          psych_favors_win:s.psych_favors_win, psych_score:s.psych_score,
+        }));
+        // Match/Differ with psychology
+        type MDSig={contract_type?:string;digit?:number;confidence?:number;direction?:string;reason?:string;ticks?:number;psych_favors_win?:boolean;psych_score?:number;};
         const mdSigs=(md.signals as MDSig[]|undefined)??[];
-        mdSigs.forEach(s=>all.push({contract_type:s.contract_type??"DIGITMATCH",direction:s.direction??"",ticks:s.ticks??5,confidence:s.confidence??0,digit:s.digit,reason:s.reason??"Match/Differ signal"}));
-        // Pick best signal ≥87%
-        const qualified=all.filter(s=>s.confidence>=MIN_CONF).sort((a,b)=>b.confidence-a.confidence);
-        if (qualified.length>0) setAiSignal(qualified[0]);
-        else setAiSignal(all.sort((a,b)=>b.confidence-a.confidence)[0]??null);
+        mdSigs.forEach(s=>all.push({
+          contract_type:s.contract_type??"DIGITMATCH",direction:s.direction??"",
+          ticks:s.ticks??5,confidence:s.confidence??0,digit:s.digit,reason:s.reason??"Match/Differ signal",
+          psych_favors_win:s.psych_favors_win, psych_score:s.psych_score,
+        }));
+
+        // Psychology-aware selection:
+        // 1. Prefer signals where psych_favors_win === true AND confidence ≥ MIN_CONF
+        // 2. Fall back to any signal ≥ MIN_CONF (no psych data available)
+        // 3. Last resort: best available regardless of confidence
+        const psychOK = all.filter(s=>s.confidence>=MIN_CONF && s.psych_favors_win===true);
+        const confOnly = all.filter(s=>s.confidence>=MIN_CONF && s.psych_favors_win!==false);
+        const fallback = [...all].sort((a,b)=>b.confidence-a.confidence);
+
+        const best = (psychOK.length>0 ? psychOK : confOnly.length>0 ? confOnly : fallback)
+          .sort((a,b)=>b.confidence-a.confidence)[0] ?? null;
+        if (best) setAiSignal(best);
       });
     };
     fetchAll();

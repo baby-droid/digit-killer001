@@ -536,94 +536,364 @@ export function computeTickContracts(prices: number[], pipSize: number) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Digit Psychology Engine — determines if recent tick history favors the
+//  winning side for a given contract type. Used by ALL signal generators.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface DigitPsychology {
+  psych_score: number;      // 0–100; >55 = psychology favors winning
+  favors_win: boolean;      // true = recent history supports this trade
+  win_rate_5: number;       // % of last 5 outcomes that would have won
+  win_rate_10: number;      // % of last 10 outcomes
+  win_rate_20: number;      // % of last 20 outcomes
+  streak: number;           // positive = consecutive wins, negative = losses
+  momentum: string;         // STRONG_WIN | WEAK_WIN | NEUTRAL | WEAK_LOSS | STRONG_LOSS
+  should_trade: boolean;    // composite gate (psych + no recent losing streak)
+  reason: string;           // human-readable verdict
+}
+
+export function computeDigitPsychology(
+  prices: number[],
+  pipSize: number,
+  contractType: string,
+  barrier?: number,
+  targetDigit?: number,
+): DigitPsychology {
+  const N = prices.length;
+  const EMPTY: DigitPsychology = {
+    psych_score: 50, favors_win: false, win_rate_5: 50, win_rate_10: 50,
+    win_rate_20: 50, streak: 0, momentum: "NEUTRAL", should_trade: false,
+    reason: "Insufficient data",
+  };
+  if (N < 6) return EMPTY;
+
+  const allDigits = prices.map((p) => extractLastDigit(p, pipSize));
+  const ct = contractType.toUpperCase();
+
+  // Build win/loss sequence for each tick
+  const wins: boolean[] = [];
+  for (let i = 1; i < N; i++) {
+    const d = allDigits[i];
+    let won = false;
+    switch (ct) {
+      case "DIGITOVER":  won = barrier !== undefined ? d > barrier  : d > 4; break;
+      case "DIGITUNDER": won = barrier !== undefined ? d < barrier  : d < 5; break;
+      case "DIGITEVEN":  won = d % 2 === 0; break;
+      case "DIGITODD":   won = d % 2 !== 0; break;
+      case "DIGITMATCH": won = targetDigit !== undefined && d === targetDigit; break;
+      case "DIGITDIFF":  won = targetDigit !== undefined ? d !== targetDigit : true; break;
+      case "CALL":       won = prices[i] > prices[i - 1]; break;
+      case "PUT":        won = prices[i] < prices[i - 1]; break;
+      default:           won = d > 4;
+    }
+    wins.push(won);
+  }
+
+  // Win rates for multiple time windows
+  const w5  = wins.slice(-5);
+  const w10 = wins.slice(-10);
+  const w20 = wins.slice(-20);
+  const rate5  = w5.length  > 0 ? (w5.filter(Boolean).length  / w5.length)  * 100 : 50;
+  const rate10 = w10.length > 0 ? (w10.filter(Boolean).length / w10.length) * 100 : 50;
+  const rate20 = w20.length > 0 ? (w20.filter(Boolean).length / w20.length) * 100 : 50;
+
+  // Streak from end: +N = N consecutive wins, -N = N consecutive losses
+  let streak = 0;
+  const lastWon = wins[wins.length - 1] ?? false;
+  for (let i = wins.length - 1; i >= 0; i--) {
+    if (wins[i] === lastWon) streak++;
+    else break;
+  }
+  if (!lastWon) streak = -streak;
+
+  // Psychology score: weighted combination of time windows + streak momentum
+  // Primary weight on recent (last 10), with acceleration from last 5
+  let score = rate10 * 0.50 + rate5 * 0.30 + rate20 * 0.20;
+  const accel = rate5 - rate10;  // positive = win rate accelerating
+  score += accel * 0.40;
+
+  // Streak modifiers
+  if (streak >= 5)       score += 10;
+  else if (streak >= 3)  score += 6;
+  else if (streak >= 1)  score += 2;
+  if (streak <= -5)      score -= 14;
+  else if (streak <= -3) score -= 9;
+  else if (streak <= -1) score -= 3;
+
+  // Long-term alignment bonus
+  if (rate20 > 58) score += 4;
+  if (rate20 < 42) score -= 4;
+
+  score = Math.min(96, Math.max(4, parseFloat(score.toFixed(1))));
+
+  // Gates: wins must dominate recent history; no catastrophic losing streak
+  const favorsWin  = score > 55 && rate10 > 52 && streak > -4;
+  // Stronger gate for actual auto-trading: also require last-5 not collapsed
+  const shouldTrade = favorsWin && rate5 >= 40 && streak > -3;
+
+  // Momentum label
+  let momentum = "NEUTRAL";
+  if (score >= 72)      momentum = "STRONG_WIN";
+  else if (score >= 58) momentum = "WEAK_WIN";
+  else if (score <= 28) momentum = "STRONG_LOSS";
+  else if (score <= 42) momentum = "WEAK_LOSS";
+
+  const reason = favorsWin
+    ? `✅ PSYCH OK — W10:${rate10.toFixed(0)}% W5:${rate5.toFixed(0)}%${streak > 0 ? ` | ${streak}-win streak` : ""}`
+    : `⛔ PSYCH BLOCK — W10:${rate10.toFixed(0)}% (need >52%)${streak < 0 ? ` | ${Math.abs(streak)}-loss streak` : ""}${accel < -10 ? " | decelerating" : ""}`;
+
+  return {
+    psych_score: score,
+    favors_win: favorsWin,
+    win_rate_5:  parseFloat(rate5.toFixed(1)),
+    win_rate_10: parseFloat(rate10.toFixed(1)),
+    win_rate_20: parseFloat(rate20.toFixed(1)),
+    streak,
+    momentum,
+    should_trade: shouldTrade,
+    reason,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Comprehensive AI Signal Generator — ALL contract types, psychology-gated.
+//  Returns EVEN/ODD, OVER (2-5), UNDER (5-8), MATCH, DIFFER, RISE, FALL.
+//  Only signals where digit psychology favors the winning side are emitted.
+// ─────────────────────────────────────────────────────────────────────────────
 export function computeAiSignals(
   symbol: string,
   digitStats: DigitStats[],
   prices: number[],
-  pipSize: number
+  pipSize: number,
 ) {
-  const currentDigit = extractLastDigit(prices[prices.length - 1] ?? 0, pipSize);
-  const sorted = [...digitStats].sort((a, b) => b.percentage - a.percentage);
-  const signals = [];
+  const N = prices.length;
+  const allDigits = prices.map((p) => extractLastDigit(p, pipSize));
+  const currentDigit = allDigits[N - 1] ?? 0;
   const now = new Date().toISOString();
+  let uid = 1;
 
-  // Signal 1: Under if high digits are dominant
-  const highDigitPct = [6, 7, 8, 9].map((d) => sorted.find((s) => s.digit === d)?.percentage ?? 0);
-  const highSum = highDigitPct.reduce((a, b) => a + b, 0);
-  if (highSum > 44) {
-    signals.push({
-      id: `${symbol}-under-${Date.now()}`,
+  // Multi-window frequency tables
+  const mkFreq = (arr: number[]) => {
+    const c = new Array(10).fill(0) as number[];
+    arr.forEach((d) => { if (d >= 0 && d <= 9) c[d]++; });
+    return c.map((v, i) => ({ digit: i, pct: (v / (arr.length || 1)) * 100 }));
+  };
+  const fullFreq = mkFreq(allDigits);
+  const last5    = allDigits.slice(-5);
+  const last10   = allDigits.slice(-10);
+
+  // Price direction for Rise/Fall
+  const dirs: number[] = [];
+  for (let i = 1; i < N; i++) dirs.push(prices[i] >= prices[i - 1] ? 1 : 0);
+  const up20Pct = dirs.slice(-20).length > 0 ? (dirs.slice(-20).filter((d) => d === 1).length / Math.min(20, dirs.length)) * 100 : 50;
+  const up10Pct = dirs.slice(-10).length > 0 ? (dirs.slice(-10).filter((d) => d === 1).length / Math.min(10, dirs.length)) * 100 : 50;
+
+  // Helper to build a signal with psychology assessment
+  type SigOut = {
+    id: string; symbol: string; contract_type: string; direction: string;
+    entry_digit: number; ticks: number; confidence: number; strategy: string;
+    timestamp: string; reason: string; risk_level: string;
+    barrier?: number; digit?: number;
+    psych_score: number; psych_favors_win: boolean;
+    win_rate_5: number; win_rate_10: number;
+    psych_streak: number; psych_momentum: string;
+  };
+
+  function buildSignal(opts: {
+    ct: string; dir: string; entryDigit: number; ticks: number;
+    baseConf: number; risk: string; strategy: string;
+    barrier?: number; digit?: number; analyticsReason: string;
+  }): SigOut {
+    const psych = computeDigitPsychology(prices, pipSize, opts.ct, opts.barrier, opts.digit);
+
+    // Adjust confidence based on psychology quality
+    let conf = opts.baseConf;
+    if (psych.psych_score > 65) conf += Math.min(7, (psych.psych_score - 65) * 0.35);
+    if (psych.psych_score < 45) conf -= Math.min(10, (45 - psych.psych_score) * 0.5);
+    if (psych.streak >= 3)  conf += 3;
+    if (psych.streak <= -3) conf -= 6;
+    conf = Math.min(94, Math.max(22, parseFloat(conf.toFixed(1))));
+
+    const sig: SigOut = {
+      id: `${symbol}-${opts.ct.toLowerCase()}-${uid++}`,
       symbol,
-      contract_type: "UNDER",
-      direction: "UNDER 6",
-      entry_digit: 9,
-      ticks: 5,
-      confidence: Math.min(95, highSum * 1.5),
-      strategy: "High Digit Exhaustion",
+      contract_type: opts.ct,
+      direction: opts.dir,
+      entry_digit: opts.entryDigit,
+      ticks: opts.ticks,
+      confidence: conf,
+      strategy: opts.strategy,
       timestamp: now,
-      reason: `Digits 6-9 dominate at ${highSum.toFixed(1)}% - exhaustion likely`,
-      risk_level: "Medium",
-    });
+      reason: `${opts.analyticsReason} | ${psych.reason}`,
+      risk_level: opts.risk,
+      psych_score: psych.psych_score,
+      psych_favors_win: psych.favors_win,
+      win_rate_5: psych.win_rate_5,
+      win_rate_10: psych.win_rate_10,
+      psych_streak: psych.streak,
+      psych_momentum: psych.momentum,
+    };
+    if (opts.barrier !== undefined) sig.barrier = opts.barrier;
+    if (opts.digit   !== undefined) sig.digit   = opts.digit;
+    return sig;
   }
 
-  // Signal 2: Over if low digits are dominant
-  const lowDigitPct = [0, 1, 2, 3].map((d) => sorted.find((s) => s.digit === d)?.percentage ?? 0);
-  const lowSum = lowDigitPct.reduce((a, b) => a + b, 0);
-  if (lowSum > 44) {
-    signals.push({
-      id: `${symbol}-over-${Date.now() + 1}`,
-      symbol,
-      contract_type: "OVER",
-      direction: "OVER 4",
-      entry_digit: 1,
-      ticks: 3,
-      confidence: Math.min(95, lowSum * 1.5),
-      strategy: "Low Digit Exhaustion",
-      timestamp: now,
-      reason: `Digits 0-3 dominate at ${lowSum.toFixed(1)}% - over pressure building`,
-      risk_level: "Medium",
-    });
+  const allSignals: SigOut[] = [];
+
+  // ── 1. EVEN / ODD ───────────────────────────────────────────────────────────
+  const evenPct = [0, 2, 4, 6, 8].reduce((s, d) => s + fullFreq[d].pct, 0);
+  const oddPct  = 100 - evenPct;
+  const evenIn10 = last10.filter((d) => d % 2 === 0).length;
+  const oddIn10  = last10.length - evenIn10;
+  const evenIn5  = last5.filter((d) => d % 2 === 0).length;
+
+  // Entry trigger: alternation tendency — last digit odd → even slightly more likely
+  const evenTrigger = currentDigit % 2 !== 0;
+  const oddTrigger  = currentDigit % 2 === 0;
+
+  let evenConf = evenPct;
+  if (evenIn10 > 6) evenConf += 8;
+  if (evenTrigger)  evenConf += 5;
+  if (evenIn5 > 3)  evenConf += 3;
+  evenConf = Math.min(88, evenConf);
+
+  let oddConf = oddPct;
+  if (oddIn10 > 6) oddConf += 8;
+  if (oddTrigger)  oddConf += 5;
+  if (last5.filter((d) => d % 2 !== 0).length > 3) oddConf += 3;
+  oddConf = Math.min(88, oddConf);
+
+  allSignals.push(buildSignal({
+    ct: "DIGITEVEN", dir: "EVEN", entryDigit: currentDigit, ticks: 5,
+    baseConf: evenConf, risk: evenPct >= 52 ? "Low" : "Medium",
+    strategy: "Parity Psychology Gate",
+    analyticsReason: `Even: ${evenPct.toFixed(1)}% hist | ${evenIn10 * 10}% last-10 | ${evenTrigger ? "✅ entry" : "⏳ wait"}`,
+  }));
+  allSignals.push(buildSignal({
+    ct: "DIGITODD", dir: "ODD", entryDigit: currentDigit, ticks: 5,
+    baseConf: oddConf, risk: oddPct >= 52 ? "Low" : "Medium",
+    strategy: "Parity Psychology Gate",
+    analyticsReason: `Odd: ${oddPct.toFixed(1)}% hist | ${oddIn10 * 10}% last-10 | ${oddTrigger ? "✅ entry" : "⏳ wait"}`,
+  }));
+
+  // ── 2. OVER barriers ────────────────────────────────────────────────────────
+  for (const b of [2, 3, 4, 5]) {
+    const winPct  = Array.from({ length: 9 - b }, (_, i) => b + 1 + i).reduce((s, d) => s + fullFreq[d].pct, 0);
+    const winIn10 = last10.filter((d) => d > b).length;
+    const atBarrier = currentDigit <= b; // just got a losing digit → best entry moment
+
+    if (winPct < 48) continue; // not statistically viable
+
+    let conf = winPct;
+    if (atBarrier)    conf += 7;
+    if (winIn10 > 6)  conf += 5;
+    if (winPct > 70)  conf += 4;
+    conf = Math.min(91, conf);
+
+    allSignals.push(buildSignal({
+      ct: "DIGITOVER", dir: "OVER", entryDigit: b, ticks: 1, barrier: b,
+      baseConf: conf,
+      risk: winPct > 70 ? "Very Low" : winPct > 60 ? "Low" : "Medium",
+      strategy: "Multi-Window Over Psychology",
+      analyticsReason: `Over ${b}: ${winPct.toFixed(1)}% hist | last-10: ${winIn10 * 10}% | ${atBarrier ? "✅ at barrier" : "⏳ wait"}`,
+    }));
   }
 
-  // Signal 3: Match best digit
-  const bestMatch = sorted[0];
-  signals.push({
-    id: `${symbol}-match-${Date.now() + 2}`,
-    symbol,
-    contract_type: "MATCHES",
-    direction: `MATCH ${bestMatch.digit}`,
-    entry_digit: bestMatch.digit,
-    ticks: 10,
-    confidence: Math.min(90, bestMatch.percentage * 4),
-    strategy: "Frequency Dominance",
-    timestamp: now,
-    reason: `Digit ${bestMatch.digit} at ${bestMatch.percentage}% - highest frequency`,
-    risk_level: "High",
-  });
+  // ── 3. UNDER barriers ───────────────────────────────────────────────────────
+  for (const b of [5, 6, 7, 8]) {
+    const winPct  = Array.from({ length: b }, (_, i) => i).reduce((s, d) => s + fullFreq[d].pct, 0);
+    const winIn10 = last10.filter((d) => d < b).length;
+    const atBarrier = currentDigit >= b;
 
-  // Signal 4: Differ worst digit
-  const worstDigit = sorted[sorted.length - 1];
-  signals.push({
-    id: `${symbol}-differ-${Date.now() + 3}`,
-    symbol,
-    contract_type: "DIFFERS",
-    direction: `DIFFER ${worstDigit.digit}`,
-    entry_digit: worstDigit.digit,
-    ticks: 5,
-    confidence: Math.min(90, (10 - worstDigit.percentage) * 8),
-    strategy: "Least Likely Digit",
-    timestamp: now,
-    reason: `Digit ${worstDigit.digit} at ${worstDigit.percentage}% - least frequent, best to differ`,
-    risk_level: "Low",
-  });
+    if (winPct < 48) continue;
 
+    let conf = winPct;
+    if (atBarrier)   conf += 7;
+    if (winIn10 > 6) conf += 5;
+    if (winPct > 70) conf += 4;
+    conf = Math.min(91, conf);
+
+    allSignals.push(buildSignal({
+      ct: "DIGITUNDER", dir: "UNDER", entryDigit: b, ticks: 1, barrier: b,
+      baseConf: conf,
+      risk: winPct > 70 ? "Very Low" : winPct > 60 ? "Low" : "Medium",
+      strategy: "Multi-Window Under Psychology",
+      analyticsReason: `Under ${b}: ${winPct.toFixed(1)}% hist | last-10: ${winIn10 * 10}% | ${atBarrier ? "✅ at barrier" : "⏳ wait"}`,
+    }));
+  }
+
+  // ── 4. MATCH — best digit by combined recent + full frequency ────────────────
+  const scoredDigits = Array.from({ length: 10 }, (_, d) => ({
+    digit: d,
+    recentPct: mkFreq(last10)[d].pct,
+    fullPct:   fullFreq[d].pct,
+    score:     mkFreq(last10)[d].pct * 0.60 + fullFreq[d].pct * 0.40,
+  })).sort((a, b) => b.score - a.score);
+
+  const bestMatch   = scoredDigits[0];
+  const matchConf   = Math.min(85, bestMatch.score * 3 + (last5.includes(bestMatch.digit) ? 8 : 0));
+  allSignals.push(buildSignal({
+    ct: "DIGITMATCH", dir: "MATCH", entryDigit: bestMatch.digit, ticks: 5, digit: bestMatch.digit,
+    baseConf: matchConf, risk: "High",
+    strategy: "Recent Frequency Match",
+    analyticsReason: `Match ${bestMatch.digit}: ${bestMatch.recentPct.toFixed(1)}% last-10 | ${bestMatch.fullPct.toFixed(1)}% full`,
+  }));
+
+  // ── 5. DIFFER — coldest digit in recent windows ──────────────────────────────
+  const worstRecent  = scoredDigits[scoredDigits.length - 1];
+  const absentInLast5 = !last5.includes(worstRecent.digit);
+  const differConf   = Math.min(84, (100 - worstRecent.recentPct) * 0.80 + (absentInLast5 ? 8 : 0));
+  allSignals.push(buildSignal({
+    ct: "DIGITDIFF", dir: "DIFFER", entryDigit: worstRecent.digit, ticks: 5, digit: worstRecent.digit,
+    baseConf: differConf, risk: "Low",
+    strategy: "Cold Digit Avoidance",
+    analyticsReason: `Differ ${worstRecent.digit}: ${worstRecent.recentPct.toFixed(1)}% recent (cold) | absent last-5: ${absentInLast5}`,
+  }));
+
+  // ── 6. RISE (CALL) ───────────────────────────────────────────────────────────
+  const riseConf = Math.min(88, 50 + (up20Pct - 50) * 0.70 + (up10Pct > 60 ? 8 : up10Pct < 40 ? -5 : 0));
+  allSignals.push(buildSignal({
+    ct: "CALL", dir: "RISE", entryDigit: currentDigit, ticks: 5,
+    baseConf: parseFloat(riseConf.toFixed(1)),
+    risk: riseConf > 70 ? "Medium" : "Low",
+    strategy: "Momentum Rise Psychology",
+    analyticsReason: `Rise: up ${up20Pct.toFixed(0)}% of last-20 | ${up10Pct.toFixed(0)}% last-10`,
+  }));
+
+  // ── 7. FALL (PUT) ─────────────────────────────────────────────────────────────
+  const fallConf = Math.min(88, 50 + (50 - up20Pct) * 0.70 + (up10Pct < 40 ? 8 : up10Pct > 60 ? -5 : 0));
+  allSignals.push(buildSignal({
+    ct: "PUT", dir: "FALL", entryDigit: currentDigit, ticks: 5,
+    baseConf: parseFloat(fallConf.toFixed(1)),
+    risk: fallConf > 70 ? "Medium" : "Low",
+    strategy: "Momentum Fall Psychology",
+    analyticsReason: `Fall: down ${(100 - up20Pct).toFixed(0)}% of last-20 | ${(100 - up10Pct).toFixed(0)}% last-10`,
+  }));
+
+  // ── Psychology gate: prefer signals where recent history favors winning ──────
+  const favorable  = allSignals.filter((s) => s.psych_favors_win);
+  const allSorted  = [...allSignals].sort((a, b) => b.confidence - a.confidence);
+  // Return favorable signals first; fall back to all if none pass the gate
+  const topSignals = (favorable.length > 0 ? [...favorable] : allSorted)
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 12);
+
+  const highSum = [6, 7, 8, 9].reduce((s, d) => s + fullFreq[d].pct, 0);
+  const lowSum  = [0, 1, 2, 3].reduce((s, d) => s + fullFreq[d].pct, 0);
   const marketCondition = highSum > 44 ? "HIGH_PRESSURE" : lowSum > 44 ? "LOW_PRESSURE" : "BALANCED";
 
   return {
     symbol,
-    signals,
-    last_updated: now,
+    signals: topSignals,
+    all_signals: allSorted,
     market_condition: marketCondition,
+    last_updated: now,
+    current_digit: currentDigit,
+    psychology_summary: {
+      signals_favorable: favorable.length,
+      signals_total: allSignals.length,
+      psych_gated: favorable.length > 0,
+    },
   };
 }
 

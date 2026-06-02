@@ -14,7 +14,7 @@ interface MarkovState {
 }
 interface AutoCorr { lag1: number; interpretation: string; signal: string }
 interface TrendInfo { direction: string; up_pct: number; down_pct: number; volatility: number }
-interface ContractSig { signal: string; confidence: number; duration: number; reasons: string[]; risk_level: string }
+interface ContractSig { signal: string; confidence: number; duration: number; reasons: string[]; risk_level: string; psych_score?: number; psych_favors_win?: boolean; psych_win_rate_10?: number; psych_win_rate_5?: number; psych_streak?: number; psych_momentum?: string; psych_reason?: string; }
 interface RiseFallData {
   symbol: string;
   current_price: number;
@@ -264,8 +264,22 @@ export default function RiseFallPage() {
             symbol={symbol}
             pageLabel="Rise / Fall"
             signals={[
-              { label: "Rise (CALL)", contract_type: "CALL", confidence: data.rise_fall.rise.confidence, ticks: data.rise_fall.rise.duration },
-              { label: "Fall (PUT)",  contract_type: "PUT",  confidence: data.rise_fall.fall.confidence, ticks: data.rise_fall.fall.duration },
+              {
+                label: "Rise (CALL)", contract_type: "CALL",
+                confidence: data.rise_fall.rise.confidence, ticks: data.rise_fall.rise.duration,
+                psych_favors_win: data.rise_fall.rise.psych_favors_win,
+                psych_score: data.rise_fall.rise.psych_score,
+                psych_win_rate_10: data.rise_fall.rise.psych_win_rate_10,
+                psych_streak: data.rise_fall.rise.psych_streak,
+              },
+              {
+                label: "Fall (PUT)", contract_type: "PUT",
+                confidence: data.rise_fall.fall.confidence, ticks: data.rise_fall.fall.duration,
+                psych_favors_win: data.rise_fall.fall.psych_favors_win,
+                psych_score: data.rise_fall.fall.psych_score,
+                psych_win_rate_10: data.rise_fall.fall.psych_win_rate_10,
+                psych_streak: data.rise_fall.fall.psych_streak,
+              },
             ]}
           />
 
