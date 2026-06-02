@@ -1,40 +1,131 @@
 /**
- * DerivConnectionBar — compact connection widget displayed at the top of every
- * trading page. Users connect via PAT/token or via Deriv OAuth (redirect-based,
- * works with just the app_id — no client secret required).
+ * DerivConnectionBar — connection widget.
+ *
+ * On the Dashboard (/dashboard or /): shows the full login form (OAuth + token paste).
+ * On all other pages: shows a compact status strip when connected, or a small
+ *   "Connect on Dashboard" banner when disconnected — no login form.
+ *
+ * This gives a single-login UX: connect once on Dashboard, trade everywhere.
+ *
+ * OAuth strategy:
+ *   Primary  — legacy oauth.deriv.com (app_id=1089) — accepts any redirect_uri,
+ *              returns trading token directly, works with the WS proxy authorize call.
+ *   Secondary — PKCE (auth.deriv.com) — requires the redirect_uri to be registered
+ *              in Deriv's app dashboard; returns a Bearer access_token for the new API.
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useLocation, Link } from "wouter";
 import {
   Wifi, Loader, DollarSign, User, ChevronDown,
   RotateCcw, LogIn, LogOut, AlertCircle, ExternalLink,
 } from "lucide-react";
 import { useDerivContext } from "@/context/DerivContext";
 
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+
+interface OauthConfig {
+  client_id:    string;
+  app_id:       string;
+  redirect_uri: string;
+}
+
+// Fetch the correct redirect_uri from the server (handles Replit proxy domains).
+async function fetchOauthConfig(): Promise<OauthConfig> {
+  const r = await fetch("/api/deriv/oauth/config");
+  if (!r.ok) throw new Error("Config fetch failed");
+  return r.json() as Promise<OauthConfig>;
+}
+
+// Build a PKCE URL for the new auth.deriv.com OAuth 2.0 flow.
+// NOTE: requires the redirect_uri to be pre-registered in Deriv's developer dashboard.
+async function buildPkceUrl(clientId: string, redirectUri: string): Promise<string> {
+  const array        = crypto.getRandomValues(new Uint8Array(64));
+  const codeVerifier = Array.from(array).map((v) => ALPHABET[v % ALPHABET.length]).join("");
+
+  const hash         = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier));
+  const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  const state = crypto.getRandomValues(new Uint8Array(16)).reduce(
+    (s, b) => s + b.toString(16).padStart(2, "0"), ""
+  );
+
+  sessionStorage.setItem("pkce_verifier", codeVerifier);
+  sessionStorage.setItem("oauth_state",   state);
+
+  return (
+    `https://auth.deriv.com/oauth2/auth` +
+    `?response_type=code` +
+    `&client_id=${clientId}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&scope=trade%20account_manage` +
+    `&state=${state}` +
+    `&code_challenge=${codeChallenge}` +
+    `&code_challenge_method=S256`
+  );
+}
+
+function isDashboard(location: string): boolean {
+  return location === "/" || location === "/dashboard" || location.startsWith("/dashboard");
+}
+
 export default function DerivConnectionBar() {
   const deriv = useDerivContext();
-  const [tokenInput, setTokenInput] = useState(() => localStorage.getItem("deriv_token") ?? "");
-  const [showConnect, setShowConnect] = useState(false);
-  const [showAccts, setShowAccts]   = useState(false);
-  const [loginMode, setLoginMode]   = useState<"pat" | "oauth">("pat");
-  const [appId, setAppId]           = useState<string>("1089");
-  const [demoMsg, setDemoMsg]       = useState<string | null>(null);
-  const [resetting, setResetting]   = useState(false);
+  const [location] = useLocation();
 
-  useEffect(() => {
-    fetch("/api/deriv/oauth/config")
-      .then((r) => r.json())
-      .then((d) => { if ((d as { app_id?: string }).app_id) setAppId((d as { app_id: string }).app_id); })
-      .catch(() => {});
-  }, []);
+  const [tokenInput,  setTokenInput] = useState(() => localStorage.getItem("deriv_token") ?? "");
+  const [showConnect, setShowConnect] = useState(false);
+  const [loginMode,   setLoginMode  ] = useState<"oauth" | "pat">("oauth");
+  const [oauthMode,   setOauthMode  ] = useState<"legacy" | "pkce">("legacy");
+  const [showAccts,   setShowAccts  ] = useState(false);
+  const [demoMsg,     setDemoMsg    ] = useState<string | null>(null);
+  const [resetting,   setResetting  ] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
+
+  const onDashboard = isDashboard(location);
 
   const statusColor = {
     disconnected: "#ef4444", connecting: "#fb8c00", authorizing: "#facc15", connected: "#22c55e",
   }[deriv.status];
 
-  function handleDerivOAuth() {
-    const redirectUri = `${location.origin}/auth/callback`;
-    const params = new URLSearchParams({ app_id: appId, redirect_uri: redirectUri });
-    window.location.href = `https://oauth.deriv.com/oauth2/authorize?${params.toString()}`;
+  // ── OAuth login ─────────────────────────────────────────────────────────────
+  async function handleDerivOAuth() {
+    setOauthLoading(true);
+    try {
+      const cfg = await fetchOauthConfig();
+      const redirectUri = cfg.redirect_uri || `${window.location.origin}/callback`;
+
+      if (oauthMode === "pkce") {
+        // PKCE flow — requires redirect_uri registered in Deriv developer dashboard
+        // at https://developers.deriv.com/dashboard
+        const url = await buildPkceUrl(cfg.client_id, redirectUri);
+        window.location.href = url;
+      } else {
+        // Legacy OAuth — app_id=1089 accepts any redirect_uri, no registration needed.
+        // Returns trading token directly in callback URL as token1=... loginid1=...
+        window.location.href =
+          `https://oauth.deriv.com/oauth2/authorize` +
+          `?app_id=${cfg.app_id}` +
+          `&redirect_uri=${encodeURIComponent(redirectUri)}`;
+      }
+    } catch {
+      // Fallback: use client-side origin if server config fails
+      const redirectUri = `${window.location.origin}/callback`;
+      if (oauthMode === "pkce") {
+        try {
+          const url = await buildPkceUrl("33rtqtfBfgRZqEpvayxel", redirectUri);
+          window.location.href = url;
+        } catch {
+          window.location.href =
+            `https://oauth.deriv.com/oauth2/authorize?app_id=1089&redirect_uri=${encodeURIComponent(redirectUri)}`;
+        }
+      } else {
+        window.location.href =
+          `https://oauth.deriv.com/oauth2/authorize?app_id=1089&redirect_uri=${encodeURIComponent(redirectUri)}`;
+      }
+    } finally {
+      setOauthLoading(false);
+    }
   }
 
   async function handleDemoReset() {
@@ -50,8 +141,45 @@ export default function DerivConnectionBar() {
     setTimeout(() => setDemoMsg(null), 3000);
   }
 
-  // ── Disconnected: show compact connect button ─────────────────────────────
+  function handlePATConnect() {
+    const t = tokenInput.trim();
+    if (!t) return;
+    localStorage.setItem("deriv_token", t);
+    deriv.connect(t);
+    setShowConnect(false);
+  }
+
+  function handleDisconnect() {
+    localStorage.removeItem("deriv_token");
+    localStorage.removeItem("deriv_access_token");
+    deriv.disconnect();
+  }
+
+  // ── DISCONNECTED ─────────────────────────────────────────────────────────────
   if (deriv.status === "disconnected") {
+    // Non-dashboard pages: compact "go connect" banner
+    if (!onDashboard) {
+      return (
+        <div className="mb-4">
+          {deriv.error && (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg mb-2"
+              style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+              <AlertCircle size={12} className="text-red-400 flex-shrink-0 mt-0.5" />
+              <span className="font-rajdhani text-xs text-red-400">{deriv.error}</span>
+            </div>
+          )}
+          <Link href="/dashboard">
+            <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider border cursor-pointer transition-all hover:border-primary/50"
+              style={{ background: "rgba(0,229,255,0.04)", borderColor: "rgba(0,229,255,0.2)", color: "rgba(0,229,255,0.6)" }}>
+              <LogIn size={13} />
+              Connect Deriv on Dashboard to trade
+            </div>
+          </Link>
+        </div>
+      );
+    }
+
+    // Dashboard: full login form
     return (
       <div className="mb-4">
         {deriv.error && (
@@ -83,43 +211,81 @@ export default function DerivConnectionBar() {
               <span className="font-orbitron text-xs font-bold text-primary tracking-wider">CONNECT TO DERIV</span>
               <button onClick={() => setShowConnect(false)} className="font-rajdhani text-[10px] text-muted-foreground hover:text-foreground">✕ close</button>
             </div>
+
             <div className="p-4 space-y-3">
-              {/* Mode tabs */}
+              {/* Login method tabs */}
               <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "rgba(0,229,255,0.2)" }}>
-                {(["pat", "oauth"] as const).map((m) => (
+                {(["oauth", "pat"] as const).map((m) => (
                   <button key={m} onClick={() => setLoginMode(m)}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2 font-orbitron text-[10px] font-bold tracking-wider transition-all"
                     style={loginMode === m ? { background: "#00e5ff", color: "#050a0f" } : { color: "rgba(0,229,255,0.5)" }}>
-                    {m === "pat" ? <Wifi size={10} /> : <LogIn size={10} />}
-                    {m === "pat" ? "API Token" : "Login with Deriv"}
+                    {m === "oauth" ? <LogIn size={10} /> : <Wifi size={10} />}
+                    {m === "oauth" ? "Login with Deriv" : "API Token"}
                   </button>
                 ))}
               </div>
+
+              {loginMode === "oauth" && (
+                <div className="space-y-3">
+                  <p className="font-rajdhani text-xs text-muted-foreground">
+                    Log in with your Deriv email and password. You will be redirected to Deriv and returned here automatically.
+                  </p>
+
+                  {/* OAuth login button */}
+                  <button
+                    onClick={handleDerivOAuth}
+                    disabled={oauthLoading}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all disabled:opacity-60"
+                    style={{ background: "linear-gradient(135deg,#ff444f,#e91e8c)", color: "#fff", boxShadow: "0 0 18px rgba(233,30,140,0.3)" }}
+                  >
+                    {oauthLoading
+                      ? <><span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" /> Redirecting…</>
+                      : <><LogIn size={13} /> Login with Deriv Account</>
+                    }
+                  </button>
+
+                  {/* PKCE toggle (advanced) */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      onClick={() => setOauthMode(m => m === "legacy" ? "pkce" : "legacy")}
+                      className="flex items-center gap-1.5 font-rajdhani text-[10px] transition-colors"
+                      style={{ color: oauthMode === "pkce" ? "#00e5ff" : "rgba(0,229,255,0.35)" }}
+                    >
+                      <span
+                        className="inline-block w-3 h-3 rounded-sm border flex-shrink-0"
+                        style={{
+                          background: oauthMode === "pkce" ? "#00e5ff" : "transparent",
+                          borderColor: oauthMode === "pkce" ? "#00e5ff" : "rgba(0,229,255,0.3)",
+                        }}
+                      />
+                      Use new OAuth 2.0 (PKCE)
+                    </button>
+                    {oauthMode === "pkce" && (
+                      <span className="font-rajdhani text-[9px] text-yellow-400/70">Requires redirect URL registered at developers.deriv.com</span>
+                    )}
+                  </div>
+
+                  <p className="font-rajdhani text-[10px] text-muted-foreground text-center">
+                    Your credentials never touch this app — Deriv's secure login handles everything.
+                  </p>
+                </div>
+              )}
 
               {loginMode === "pat" && (
                 <div className="space-y-2">
                   <div className="flex gap-2">
                     <input
-                      type="password" value={tokenInput}
+                      type="password"
+                      value={tokenInput}
                       onChange={(e) => setTokenInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && tokenInput.trim()) {
-                          localStorage.setItem("deriv_token", tokenInput.trim());
-                          deriv.connect(tokenInput.trim());
-                          setShowConnect(false);
-                        }
-                      }}
-                      placeholder="Paste Deriv API token (with Trade permission)…"
+                      onKeyDown={(e) => { if (e.key === "Enter") handlePATConnect(); }}
+                      placeholder="Paste Deriv API token (Trade permission)…"
                       className="flex-1 px-3 py-2 rounded-lg font-rajdhani text-xs bg-background border border-border text-foreground focus:outline-none focus:border-primary"
                     />
                     <button
-                      onClick={() => {
-                        if (!tokenInput.trim()) return;
-                        localStorage.setItem("deriv_token", tokenInput.trim());
-                        deriv.connect(tokenInput.trim());
-                        setShowConnect(false);
-                      }}
-                      className="px-4 py-2 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all"
+                      onClick={handlePATConnect}
+                      disabled={!tokenInput.trim()}
+                      className="px-4 py-2 rounded-lg font-orbitron text-xs font-bold tracking-wider disabled:opacity-40 transition-all"
                       style={{ background: "#00e5ff", color: "#050a0f" }}
                     >
                       <Wifi size={13} />
@@ -131,26 +297,8 @@ export default function DerivConnectionBar() {
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-primary transition-colors"
                   >
-                    <ExternalLink size={9} /> Get your API token from Deriv (enable Trade permission)
+                    <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
                   </a>
-                </div>
-              )}
-
-              {loginMode === "oauth" && (
-                <div className="space-y-3">
-                  <p className="font-rajdhani text-xs text-muted-foreground">
-                    Log in with your Deriv email and password. You will be redirected to Deriv's secure login page and returned here automatically.
-                  </p>
-                  <button
-                    onClick={handleDerivOAuth}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider"
-                    style={{ background: "linear-gradient(135deg,#ff444f,#e91e8c)", color: "#fff" }}
-                  >
-                    <LogIn size={12} /> Login with Deriv Account
-                  </button>
-                  <p className="font-rajdhani text-[10px] text-muted-foreground text-center">
-                    Redirects to Deriv's official login — your credentials never touch this app.
-                  </p>
                 </div>
               )}
             </div>
@@ -160,30 +308,31 @@ export default function DerivConnectionBar() {
     );
   }
 
-  // ── Connecting / Authorizing ───────────────────────────────────────────────
+  // ── CONNECTING / AUTHORIZING ──────────────────────────────────────────────────
   if (deriv.status === "connecting" || deriv.status === "authorizing") {
     return (
-      <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg mb-4 border" style={{ borderColor: "rgba(0,229,255,0.15)", background: "rgba(0,229,255,0.03)" }}>
+      <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg mb-4 border"
+        style={{ borderColor: "rgba(0,229,255,0.15)", background: "rgba(0,229,255,0.03)" }}>
         <Loader size={14} className="animate-spin text-primary flex-shrink-0" />
         <span className="font-rajdhani text-xs text-muted-foreground">
-          {deriv.status === "connecting" ? "Connecting to Deriv…" : "Authorizing token…"}
+          {deriv.status === "connecting" ? "Connecting to Deriv…" : "Authorizing…"}
         </span>
       </div>
     );
   }
 
-  // ── Connected ─────────────────────────────────────────────────────────────
+  // ── CONNECTED ─────────────────────────────────────────────────────────────────
   return (
     <div className="mb-4 space-y-2">
-      <div className="flex items-center gap-3 px-3 py-2 rounded-lg border" style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,229,255,0.04)" }}>
-        {/* Status dot */}
+      <div className="flex items-center gap-3 px-3 py-2 rounded-lg border"
+        style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,229,255,0.04)" }}>
         <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusColor, boxShadow: `0 0 6px ${statusColor}` }} />
 
-        {/* Balance */}
         <div className="flex items-center gap-1.5">
           <DollarSign size={12} className="text-primary flex-shrink-0" />
           <span className="font-orbitron text-sm font-bold">
-            {deriv.balance?.toFixed(2) ?? "—"} <span className="text-xs text-muted-foreground">{deriv.account?.currency}</span>
+            {deriv.balance?.toFixed(2) ?? "—"}{" "}
+            <span className="text-xs text-muted-foreground">{deriv.account?.currency}</span>
           </span>
           {deriv.account?.is_virtual ? (
             <span className="font-rajdhani text-[10px] px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(250,204,21,0.15)", color: "#facc15" }}>DEMO</span>
@@ -192,7 +341,6 @@ export default function DerivConnectionBar() {
           )}
         </div>
 
-        {/* Demo reset */}
         {deriv.account?.is_virtual && (
           <button onClick={handleDemoReset} disabled={resetting}
             className="flex items-center gap-1 px-2 py-1 rounded font-orbitron text-[9px] font-bold transition-all disabled:opacity-40"
@@ -201,7 +349,6 @@ export default function DerivConnectionBar() {
           </button>
         )}
 
-        {/* Account switcher */}
         {deriv.accountList.length > 1 && (
           <button onClick={() => setShowAccts((p) => !p)}
             className="flex items-center gap-1 ml-1 font-orbitron text-[10px] text-muted-foreground hover:text-primary transition-colors">
@@ -209,13 +356,15 @@ export default function DerivConnectionBar() {
           </button>
         )}
 
-        <button onClick={deriv.disconnect} className="ml-auto flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-red-400 transition-colors">
+        <button onClick={handleDisconnect}
+          className="ml-auto flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-red-400 transition-colors">
           <LogOut size={11} /> Disconnect
         </button>
       </div>
 
       {demoMsg && (
-        <div className="font-rajdhani text-xs text-center py-1" style={{ color: demoMsg.includes("topped") ? "#22c55e" : "#ef4444" }}>
+        <div className="font-rajdhani text-xs text-center py-1"
+          style={{ color: demoMsg.includes("topped") ? "#22c55e" : "#ef4444" }}>
           {demoMsg}
         </div>
       )}

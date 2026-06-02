@@ -1,4 +1,4 @@
-modules = ["nodejs-20"]
+modules = ["nodejs-20", "postgresql-16"]
 [agent]
 expertMode = true
 stack = "BEST_EFFORT_FALLBACK"
@@ -8,6 +8,7 @@ stack = "BEST_EFFORT_FALLBACK"
 [userenv.shared]
 PORT = "5000"
 BASE_PATH = "/"
+DERIV_OAUTH_CLIENT_ID = "33rtqtfBfgRZqEpvayxel"
 
 [workflows]
 runButton = "Project"
@@ -51,11 +52,22 @@ outputType = "webview"
 
 [[ports]]
 localPort = 5000
-externalPort = 80
+externalPort = 5000
 
 [[ports]]
 localPort = 8080
 externalPort = 8080
 
+[[ports]]
+localPort = 8081
+externalPort = 80
+
+[[ports]]
+localPort = 19514
+externalPort = 3000
+
 [nix]
 channel = "stable-25_05"
+
+[deployment]
+deploymentTarget = "cloudrun"

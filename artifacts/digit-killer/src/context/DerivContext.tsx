@@ -2,23 +2,32 @@
  * Global Deriv WebSocket Context
  * Provides a single, shared WS connection across all pages.
  * All trading components use this context instead of maintaining their own sockets.
+ *
+ * Supports two auth paths:
+ *   1. Legacy trading token (from oauth.deriv.com) — sent as {type:"auth",token} to ws-proxy.
+ *      Proxy connects to legacy binaryws.com and sends authorize. authorize response populates
+ *      account info directly.
+ *
+ *   2. New API OTP (from auth.deriv.com PKCE + REST OTP endpoint) — sent as
+ *      {type:"otp_connect",otp_url} to ws-proxy. Connection is pre-authenticated; account info
+ *      is read from localStorage (populated by DerivCallbackPage during PKCE flow).
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface DerivAccount {
-  loginid: string;
-  currency: string;
-  balance: number;
+  loginid:    string;
+  currency:   string;
+  balance:    number;
   is_virtual: boolean;
 }
 
 export interface DerivAccountListItem {
-  loginid: string;
-  currency: string;
-  is_virtual: number;
+  loginid:      string;
+  currency:     string;
+  is_virtual:   number;
   account_type?: string;
-  token?: string;
+  token?:       string;
 }
 
 export type ConnectionStatus = "disconnected" | "connecting" | "authorizing" | "connected";
@@ -26,21 +35,24 @@ export type ConnectionStatus = "disconnected" | "connecting" | "authorizing" | "
 type Listener = (msg: Record<string, unknown>) => void;
 
 interface DerivContextValue {
-  status: ConnectionStatus;
-  account: DerivAccount | null;
+  status:      ConnectionStatus;
+  account:     DerivAccount | null;
   accountList: DerivAccountListItem[];
-  balance: number | null;
-  error: string | null;
-  connect: (token: string) => void;
-  disconnect: () => void;
+  balance:     number | null;
+  error:       string | null;
+  /** Connect using a legacy trading token (from oauth.deriv.com or API token page) */
+  connect:     (token: string) => void;
+  /** Connect using a Bearer access_token (new PKCE OAuth) — fetches OTP internally */
+  connectOtp:  () => Promise<void>;
+  disconnect:  () => void;
   switchAccount: (item: DerivAccountListItem) => void;
-  topupDemo: () => Promise<Record<string, unknown>>;
+  topupDemo:   () => Promise<Record<string, unknown>>;
   /** Fire-and-forget — does NOT track responses */
-  send: (msg: Record<string, unknown>) => void;
+  send:        (msg: Record<string, unknown>) => void;
   /** Returns a promise that resolves with the Deriv response */
-  request: (msg: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  request:     (msg: Record<string, unknown>) => Promise<Record<string, unknown>>;
   /** Subscribe to a particular msg_type. Returns unsubscribe fn. */
-  subscribe: (msgType: string, cb: Listener) => () => void;
+  subscribe:   (msgType: string, cb: Listener) => () => void;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -60,14 +72,15 @@ function proxyUrl(): string {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export function DerivProvider({ children }: { children: React.ReactNode }) {
-  const ws              = useRef<WebSocket | null>(null);
-  const reqIdRef        = useRef(2);
-  const listeners       = useRef<Map<number, Listener>>(new Map());
-  const typeListeners   = useRef<Map<string, Set<Listener>>>(new Map());
-  const tokenRef        = useRef<string>("");
+  const ws             = useRef<WebSocket | null>(null);
+  const reqIdRef       = useRef(2);
+  const listeners      = useRef<Map<number, Listener>>(new Map());
+  const typeListeners  = useRef<Map<string, Set<Listener>>>(new Map());
+  const tokenRef       = useRef<string>("");
+  const isOtpModeRef   = useRef(false);
   // Use a ref to track authorized state inside the socket message handler
   // (avoids stale-closure bug where account state is always null inside onmessage)
-  const authorizedRef   = useRef(false);
+  const authorizedRef  = useRef(false);
 
   const [status,      setStatus     ] = useState<ConnectionStatus>("disconnected");
   const [account,     setAccount    ] = useState<DerivAccount | null>(null);
@@ -102,7 +115,7 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
       const id = reqIdRef.current++;
       listeners.current.set(id, (r) => {
         if (r.error) {
-          const errMsg = (r.error as Record<string, string>)?.message ?? "Deriv API error";
+          const errMsg  = (r.error as Record<string, string>)?.message ?? "Deriv API error";
           const errCode = (r.error as Record<string, string>)?.code ?? "";
           reject(new Error(`${errMsg}${errCode ? ` (${errCode})` : ""}`));
         } else resolve(r);
@@ -126,8 +139,9 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // ── Core socket open ────────────────────────────────────────────────────────
   // openSocket has NO dependency on account state — we use authorizedRef instead
-  const openSocket = useCallback((token: string) => {
+  const openSocket = useCallback((authPayload: Record<string, unknown>) => {
     ws.current?.close(1000);
     authorizedRef.current = false;
     const socket = new WebSocket(proxyUrl());
@@ -135,16 +149,37 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
 
     socket.onopen = () => {
       setStatus("connecting");
-      socket.send(JSON.stringify({ type: "auth", token }));
+      socket.send(JSON.stringify(authPayload));
     };
 
     socket.onmessage = (e: MessageEvent<string>) => {
       try {
         const msg     = JSON.parse(e.data) as Record<string, unknown>;
-        const type    = msg.type as string | undefined;
+        const type    = msg.type    as string | undefined;
         const msgType = msg.msg_type as string | undefined;
 
-        if (type === "proxy_open") { setStatus("authorizing"); return; }
+        if (type === "proxy_open") {
+          if (isOtpModeRef.current) {
+            // OTP connections are pre-authenticated — populate account info from
+            // localStorage (saved by DerivCallbackPage during PKCE callback).
+            const loginid   = localStorage.getItem("deriv_otp_loginid")  ?? "OTP_ACCOUNT";
+            const currency  = localStorage.getItem("deriv_otp_currency") ?? "USD";
+            const isVirtual = localStorage.getItem("deriv_otp_virtual")  === "1";
+
+            const acct: DerivAccount = { loginid, currency, balance: 0, is_virtual: isVirtual };
+            setAccount(acct);
+            setAccountList([{ loginid, currency, is_virtual: isVirtual ? 1 : 0 }]);
+            setStatus("connected");
+            setError(null);
+            authorizedRef.current = true;
+            // Subscribe to live balance updates on the new API endpoint
+            socket.send(JSON.stringify({ balance: 1, subscribe: 1, req_id: reqIdRef.current++ }));
+          } else {
+            setStatus("authorizing");
+          }
+          return;
+        }
+
         if (type === "proxy_reconnecting") {
           setStatus("connecting"); setAccount(null); setBalance(null);
           authorizedRef.current = false;
@@ -161,8 +196,9 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
         // Dispatch to req_id listeners and type-based subscribers
         dispatch(msg);
 
+        // ── Legacy authorize response ──────────────────────────────────────
         if (msgType === "authorize") {
-          const auth = msg.authorize as Record<string, unknown>;
+          const auth    = msg.authorize as Record<string, unknown>;
           const acctList = (auth.account_list as DerivAccountListItem[] | undefined) ?? [];
           setAccountList(acctList);
           const acct: DerivAccount = {
@@ -189,8 +225,7 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
         // Only treat errors as fatal auth errors if we haven't been authorized yet.
         // Using authorizedRef (not stale account state) to check this correctly.
         if (msg.error && !authorizedRef.current) {
-          const errMsg = (msg.error as Record<string, string>)?.message ?? "Auth error";
-          // Only disconnect for auth-related errors, not proposal/trade errors
+          const errMsg  = (msg.error as Record<string, string>)?.message ?? "Auth error";
           const errCode = (msg.error as Record<string, string>)?.code ?? "";
           const isAuthError = errCode === "AuthorizationRequired" || errCode === "InvalidToken"
             || errCode === "AuthorizationFailed" || msgType === "authorize";
@@ -218,18 +253,63 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
       setError("Cannot reach the backend server — check the API Server workflow.");
       setStatus("disconnected");
     };
-  }, [dispatch]); // removed 'account' dependency — use authorizedRef instead
+  }, [dispatch]);
 
+  // ── connect: legacy trading token ──────────────────────────────────────────
   const connect = useCallback((token: string) => {
     const t = token.trim();
     if (!t) return;
-    tokenRef.current = t;
+    tokenRef.current   = t;
+    isOtpModeRef.current = false;
     setStatus("connecting"); setError(null); setAccount(null); setAccountList([]); setBalance(null);
-    openSocket(t);
+    openSocket({ type: "auth", token: t });
+  }, [openSocket]);
+
+  // ── connectOtp: new API via Bearer access_token + REST OTP ─────────────────
+  const connectOtp = useCallback(async () => {
+    const accessToken = localStorage.getItem("deriv_access_token");
+    const accountId   = localStorage.getItem("deriv_otp_account_id");
+
+    if (!accessToken || !accountId) {
+      setError("No Deriv OAuth session found. Please log in again.");
+      setStatus("disconnected");
+      return;
+    }
+
+    tokenRef.current     = "";
+    isOtpModeRef.current = true;
+    setStatus("connecting"); setError(null); setAccount(null); setAccountList([]); setBalance(null);
+
+    try {
+      const resp = await fetch("/api/deriv/oauth/otp", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ access_token: accessToken, account_id: accountId }),
+      });
+
+      const data = await resp.json() as Record<string, unknown>;
+
+      if (!resp.ok || !data.otp_url) {
+        const msg = String(data.error ?? "Failed to get OTP for Deriv connection");
+        setError(msg);
+        setStatus("disconnected");
+        // OTP fetch failed — clear stored tokens so user is prompted to log in again
+        localStorage.removeItem("deriv_access_token");
+        localStorage.removeItem("deriv_otp_account_id");
+        return;
+      }
+
+      openSocket({ type: "otp_connect", otp_url: String(data.otp_url) });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Network error connecting to Deriv";
+      setError(msg);
+      setStatus("disconnected");
+    }
   }, [openSocket]);
 
   const disconnect = useCallback(() => {
-    tokenRef.current = "";
+    tokenRef.current     = "";
+    isOtpModeRef.current = false;
     ws.current?.close(1000); ws.current = null;
     setStatus("disconnected"); setAccount(null); setAccountList([]); setBalance(null); setError(null);
     authorizedRef.current = false;
@@ -246,17 +326,26 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => () => { ws.current?.close(1000); }, []);
 
-  // Auto-restore last token on mount (shared across all pages via localStorage)
+  // ── Auto-restore session on mount ──────────────────────────────────────────
   useEffect(() => {
-    const token = localStorage.getItem("deriv_token");
-    if (token) connect(token);
+    const legacyToken = localStorage.getItem("deriv_token");
+    const accessToken = localStorage.getItem("deriv_access_token");
+    const accountId   = localStorage.getItem("deriv_otp_account_id");
+
+    if (legacyToken) {
+      // Path 1: legacy trading token from oauth.deriv.com or API token page
+      connect(legacyToken);
+    } else if (accessToken && accountId) {
+      // Path 2: new API Bearer token from PKCE OAuth — connect via OTP
+      void connectOtp();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <DerivContext.Provider value={{
       status, account, accountList, balance, error,
-      connect, disconnect, switchAccount, topupDemo,
+      connect, connectOtp, disconnect, switchAccount, topupDemo,
       send, request, subscribe,
     }}>
       {children}

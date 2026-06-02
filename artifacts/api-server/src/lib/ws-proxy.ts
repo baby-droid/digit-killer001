@@ -6,6 +6,7 @@ import { logger } from "./logger";
 const APP_ID            = process.env.DERIV_APP_ID ?? "1089";
 const DERIV_WS_PRIMARY  = `wss://ws.binaryws.com/websockets/v3?app_id=${APP_ID}`;
 const DERIV_WS_ALT      = `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
+const DERIV_WS_PUBLIC   = `wss://api.derivws.com/trading/v1/options/ws/public`;
 const PING_INTERVAL_MS  = 25_000;
 const PONG_TIMEOUT_MS   = 10_000;
 const MAX_RECONNECTS    = 8;
@@ -14,8 +15,9 @@ interface Session {
   clientWs:    WebSocket;
   derivWs:     WebSocket | null;
   token:       string | null;
+  otpUrl:      string | null;   // new API: OTP-authenticated WS URL
   authorized:  boolean;
-  authFailed:  boolean;   // set true when Deriv rejects the token — stops reconnect loop
+  authFailed:  boolean;
   dead:        boolean;
   reconnects:  number;
   pingTimer:   ReturnType<typeof setInterval> | null;
@@ -26,7 +28,8 @@ interface Session {
 function createSession(clientWs: WebSocket, ip: string): Session {
   return {
     clientWs, derivWs: null,
-    token: null, authorized: false, authFailed: false, dead: false,
+    token: null, otpUrl: null,
+    authorized: false, authFailed: false, dead: false,
     reconnects: 0, pingTimer: null, pongTimer: null, ip,
   };
 }
@@ -47,8 +50,12 @@ function cleanup(session: Session) {
   logger.info({ ip: session.ip }, "WS proxy: session cleaned up");
 }
 
+// ── Connect to Deriv WebSocket ───────────────────────────────────────────────
+// Supports both legacy (authorize step) and OTP-authenticated (new API) URLs.
 function connectToDeriv(session: Session, url: string, fallback?: string): void {
   if (session.dead || session.authFailed) return;
+
+  const isOtp = url.includes("otp=") || url.includes("/ws/demo") || url.includes("/ws/real");
 
   let derivWs: WebSocket;
   try {
@@ -80,11 +87,19 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
     logger.info({ url, ip: session.ip, app_id: APP_ID }, "WS proxy: connected to Deriv");
     session.reconnects = 0;
 
-    if (session.token) {
+    if (isOtp) {
+      // OTP URL: already authenticated — no authorize step needed
+      session.authorized = true;
+      session.authFailed  = false;
+      sendToClient(session, { type: "proxy_open" });
+      logger.info({ ip: session.ip }, "WS proxy: OTP connection established (pre-authenticated)");
+    } else if (session.token) {
+      // Legacy: send authorize with trading token
       derivWs.send(JSON.stringify({ authorize: session.token, req_id: 1 }));
+      sendToClient(session, { type: "proxy_open" });
+    } else {
+      sendToClient(session, { type: "proxy_open" });
     }
-
-    sendToClient(session, { type: "proxy_open" });
   });
 
   derivWs.on("message", (raw) => {
@@ -106,13 +121,12 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
         const errMsg  = (msg.error as Record<string, string>)?.message ?? "Authorization failed";
         logger.warn({ errMsg, errCode, ip: session.ip }, "WS proxy: Deriv auth error");
 
-        // Mark auth as failed so we do NOT auto-reconnect (invalid token won't work on retry)
         session.authFailed = true;
 
         const userMsg = errCode === "AuthorizationRequired"
           ? "Token rejected — please check your Deriv API token and try again"
           : errCode === "InvalidToken"
-          ? "Invalid token — generate a new Deriv API token with Trading permissions"
+          ? "Invalid token — please log in again with Deriv"
           : `Auth error: ${errMsg}`;
 
         sendToClient(session, { type: "proxy_error", message: userMsg, code: errCode });
@@ -135,14 +149,26 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
     session.authorized = false;
 
     if (session.authFailed) {
-      // Auth failed — don't reconnect, the token won't work
       logger.info({ ip: session.ip }, "WS proxy: auth failed, not reconnecting");
       return;
     }
 
+    // OTP connections are one-shot — do not reconnect with a stale OTP URL
+    if (session.otpUrl) {
+      sendToClient(session, {
+        type: "proxy_error",
+        message: "Authenticated session expired — please reconnect",
+      });
+      return;
+    }
+
     if (code === 1006) {
-      // Abnormal closure — usually a transient network issue, reconnect
-      sendToClient(session, { type: "proxy_reconnecting", attempt: session.reconnects + 1, max: MAX_RECONNECTS, reason: "Network interruption" });
+      sendToClient(session, {
+        type: "proxy_reconnecting",
+        attempt: session.reconnects + 1,
+        max: MAX_RECONNECTS,
+        reason: "Network interruption",
+      });
     }
 
     scheduleReconnect(session);
@@ -153,14 +179,14 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
     logger.error({ err: err.message, url, ip: session.ip }, "WS proxy: Deriv WS error");
 
     if (fallback && !session.authorized && !session.authFailed) {
-      logger.info("WS proxy: trying fallback URL");
+      logger.info({ fallback }, "WS proxy: trying fallback URL");
       connectToDeriv(session, fallback);
     }
   });
 }
 
 function scheduleReconnect(session: Session) {
-  if (session.dead || session.authFailed) return;
+  if (session.dead || session.authFailed || session.otpUrl) return;
   if (session.reconnects >= MAX_RECONNECTS) {
     sendToClient(session, {
       type: "proxy_error",
@@ -227,32 +253,57 @@ export function attachWsProxy(server: Server): void {
       try {
         const msg = JSON.parse(text) as Record<string, unknown>;
 
-        // ── auth: connect to Deriv with user-supplied token ──────────────
+        // ── Legacy auth: trading token from oauth.deriv.com ──────────────
         if (msg.type === "auth") {
           const token = typeof msg.token === "string" ? msg.token.trim() : "";
           if (!token) {
             sendToClient(session, { type: "proxy_error", message: "No token provided" });
             return;
           }
-          // Reset auth state on new connection attempt
           session.token      = token;
+          session.otpUrl     = null;
           session.authFailed = false;
           session.authorized = false;
           session.reconnects = 0;
 
-          // Close existing Deriv connection if switching tokens
           if (session.derivWs) {
             try { session.derivWs.close(1000); } catch {}
             session.derivWs = null;
           }
 
-          logger.info({ ip }, "WS proxy: received auth token, connecting to Deriv");
+          logger.info({ ip }, "WS proxy: legacy auth token received, connecting to Deriv");
           connectToDeriv(session, DERIV_WS_PRIMARY, DERIV_WS_ALT);
           return;
         }
 
-        if (!session.token) {
-          sendToClient(session, { type: "proxy_error", message: "Send {type:'auth',token:'...'} first" });
+        // ── New API auth: OTP WebSocket URL from REST API ─────────────────
+        if (msg.type === "otp_connect") {
+          const otpUrl = typeof msg.otp_url === "string" ? msg.otp_url.trim() : "";
+          if (!otpUrl || !otpUrl.startsWith("wss://")) {
+            sendToClient(session, { type: "proxy_error", message: "Invalid OTP URL" });
+            return;
+          }
+          session.token      = null;
+          session.otpUrl     = otpUrl;
+          session.authFailed = false;
+          session.authorized = false;
+          session.reconnects = 0;
+
+          if (session.derivWs) {
+            try { session.derivWs.close(1000); } catch {}
+            session.derivWs = null;
+          }
+
+          logger.info({ ip }, "WS proxy: OTP connect received, connecting to new Deriv API");
+          connectToDeriv(session, otpUrl); // OTP URL is single-use; no fallback
+          return;
+        }
+
+        if (!session.token && !session.otpUrl) {
+          sendToClient(session, {
+            type: "proxy_error",
+            message: "Send {type:'auth',token:'...'} for legacy login or {type:'otp_connect',otp_url:'...'} for new API first",
+          });
           return;
         }
 
@@ -279,3 +330,6 @@ export function attachWsProxy(server: Server): void {
 
   logger.info({ app_id: APP_ID }, "WS proxy: attached at /ws/deriv");
 }
+
+// Export for use in deriv.ts public data connections
+export { DERIV_WS_PUBLIC };
