@@ -7,6 +7,7 @@ import { useSymbol } from "@/context/SymbolContext";
 import { Zap, Download, AlertCircle, Brain, FileText, RefreshCw, ChevronRight, Upload, X, CheckCircle } from "lucide-react";
 import logoPath from "@assets/WhatsApp_Image_2026-05-30_at_19.05.28_1780157146139.jpeg";
 import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
+import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 // ─────────────────────────────────────────────────────────────────
 //  Types
@@ -1086,7 +1087,8 @@ export default function AiSignalsPage() {
         )}
       </div>
 
-      {/* ── Auto Trade Panel ── */}
+      {/* ── Deriv Connection + Auto Trade Panel ── */}
+      <DerivConnectionBar />
       {symbol && (
         <AutoTradePanel
           symbol={symbol}

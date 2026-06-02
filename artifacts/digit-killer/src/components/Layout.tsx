@@ -8,6 +8,7 @@ import {
   BarChart2, Zap, Settings, ChevronLeft, ChevronRight,
   Radio, LogIn, FileBarChart, Menu, X, ChevronDown, LogOut,
   ArrowUp, ArrowDown, ArrowUpDown, Bot, LineChart, Calculator, GraduationCap,
+  GitMerge, Rocket,
 } from "lucide-react";
 
 const MARKET_GROUPS = [
@@ -85,6 +86,8 @@ const NAV_ITEMS = [
   { path: "/ai-signals",      label: "AI Signals",      icon: Zap },
   { path: "/ai-trading",      label: "AI Trading",      icon: Bot },
   { path: "/deriv-trader",    label: "Deriv Trader",    icon: LineChart },
+  { path: "/hedge-trading",   label: "Hedge Trading",   icon: GitMerge },
+  { path: "/speed-lab",       label: "Speed Lab",       icon: Rocket },
   { path: "/risk-calculator", label: "Risk Calculator", icon: Calculator },
   { path: "/reports",         label: "ML Reports",      icon: FileBarChart },
   { path: "/teaching",        label: "Academy",         icon: GraduationCap },

@@ -6,6 +6,7 @@ import {
 import { useSymbol } from "@/context/SymbolContext";
 import { Divide, CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Zap } from "lucide-react";
 import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
+import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 const DIGIT_COLORS: Record<number, string> = {
   0: "#00897b", 1: "#1e88e5", 2: "#8e24aa", 3: "#43a047", 4: "#fb8c00",
@@ -537,7 +538,8 @@ export default function EvenOddPage() {
         </div>
       )}
 
-      {/* Auto Trade Panel */}
+      {/* Deriv Connection + Auto Trade Panel */}
+      <DerivConnectionBar />
       <AutoTradePanel
         symbol={symbol}
         pageLabel="Even/Odd"

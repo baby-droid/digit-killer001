@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from "react";
 import { SymbolProvider } from "@/context/SymbolContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { DerivProvider } from "@/context/DerivContext";
 import Layout from "@/components/Layout";
 import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
@@ -23,6 +24,8 @@ import RiskCalculatorPage from "@/pages/RiskCalculatorPage";
 import SettingsPage from "@/pages/SettingsPage";
 import ReportsPage from "@/pages/ReportsPage";
 import TeachingPage from "@/pages/TeachingPage";
+import HedgeTradingPage from "@/pages/HedgeTradingPage";
+import SpeedLabPage from "@/pages/SpeedLabPage";
 import NotFound from "@/pages/not-found";
 import DerivCallbackPage from "@/pages/DerivCallbackPage";
 
@@ -52,12 +55,13 @@ function Protected({ children }: { children: React.ReactNode }) {
 function Router() {
   return (
     <Switch>
-      {/* Root → Login page always (no splash) */}
+      {/* Public routes */}
       <Route path="/" component={LoginPage} />
       <Route path="/login" component={LoginPage} />
-      {/* Deriv OAuth callback — must be public, no auth required */}
+      {/* Deriv OAuth callback — public, no auth required */}
       <Route path="/auth/callback" component={DerivCallbackPage} />
 
+      {/* Protected routes */}
       <Route path="/dashboard"><Protected><DashboardPage /></Protected></Route>
       <Route path="/wide-eye"><Protected><WideEyePage /></Protected></Route>
       <Route path="/over-under"><Protected><OverUnderPage /></Protected></Route>
@@ -70,6 +74,8 @@ function Router() {
       <Route path="/ai-signals"><Protected><AiSignalsPage /></Protected></Route>
       <Route path="/ai-trading"><Protected><AiTradingPage /></Protected></Route>
       <Route path="/deriv-trader"><Protected><DerivTraderPage /></Protected></Route>
+      <Route path="/hedge-trading"><Protected><HedgeTradingPage /></Protected></Route>
+      <Route path="/speed-lab"><Protected><SpeedLabPage /></Protected></Route>
       <Route path="/risk-calculator"><Protected><RiskCalculatorPage /></Protected></Route>
       <Route path="/reports"><Protected><ReportsPage /></Protected></Route>
       <Route path="/teaching"><Protected><TeachingPage /></Protected></Route>
@@ -87,14 +93,18 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-      <TooltipProvider>
-        <SymbolProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
-        </SymbolProvider>
-        <Toaster />
-      </TooltipProvider>
+        <TooltipProvider>
+          <SymbolProvider>
+            {/* DerivProvider wraps the whole app so ONE WebSocket connection
+                is shared across all pages — no re-auth when navigating */}
+            <DerivProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <Router />
+              </WouterRouter>
+            </DerivProvider>
+          </SymbolProvider>
+          <Toaster />
+        </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

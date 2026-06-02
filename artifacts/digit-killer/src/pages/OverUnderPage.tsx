@@ -5,6 +5,7 @@ import {
 import { useSymbol } from "@/context/SymbolContext";
 import { TrendingUp, TrendingDown, AlertCircle, Activity } from "lucide-react";
 import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
+import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 interface FreqEntry { digit: number; count: number; pct: number }
 
@@ -425,7 +426,8 @@ export default function OverUnderPage() {
         </div>
       )}
 
-      {/* Auto Trade Panel */}
+      {/* Deriv Connection + Auto Trade Panel */}
+      <DerivConnectionBar />
       <AutoTradePanel
         symbol={symbol}
         pageLabel="Over/Under"
