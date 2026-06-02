@@ -43,6 +43,9 @@ function Router() {
       <Route path="/dashboard">
         <Layout><DashboardPage /></Layout>
       </Route>
+      {/* Registered Deriv OAuth callback URL */}
+      <Route path="/callback" component={DerivCallbackPage} />
+      {/* Legacy callback path — kept for backward compatibility */}
       <Route path="/auth/callback" component={DerivCallbackPage} />
       <Route path="/wide-eye"><Layout><WideEyePage /></Layout></Route>
       <Route path="/over-under"><Layout><OverUnderPage /></Layout></Route>

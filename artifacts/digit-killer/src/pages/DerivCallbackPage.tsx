@@ -11,10 +11,13 @@ export default function DerivCallbackPage() {
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
-    // Deriv OAuth (oauth.deriv.com) returns tokens directly as URL params:
-    // ?token1=TOKEN&loginid1=LOGINID&acct1=LOGINID&cur1=USD (may have multiple accounts)
+    void handleCallback();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleCallback() {
     const params = new URLSearchParams(window.location.search);
-    const error  = params.get("error");
+    const error = params.get("error");
 
     if (error) {
       const desc = params.get("error_description") ?? error;
@@ -23,13 +26,66 @@ export default function DerivCallbackPage() {
       return;
     }
 
-    // Pick the first non-demo token (or fall back to the first available)
+    // ── PKCE OAuth 2.0 flow: exchange code for access_token ──────────────────
+    const code = params.get("code");
+    const returnedState = params.get("state");
+
+    if (code && returnedState) {
+      const savedState = sessionStorage.getItem("oauth_state");
+      const codeVerifier = sessionStorage.getItem("pkce_verifier");
+
+      if (!savedState || returnedState !== savedState) {
+        setErrorMsg("Security check failed (state mismatch). Please try again.");
+        setStage("error");
+        return;
+      }
+
+      if (!codeVerifier) {
+        setErrorMsg("PKCE verifier missing. Please start the login flow again.");
+        setStage("error");
+        return;
+      }
+
+      try {
+        const redirectUri = `${window.location.origin}/callback`;
+        const resp = await fetch("/api/deriv/oauth/exchange", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, code_verifier: codeVerifier, redirect_uri: redirectUri }),
+        });
+
+        const data = await resp.json() as Record<string, unknown>;
+
+        if (!resp.ok || !data.access_token) {
+          const msg = String(data.error ?? "Token exchange failed. Please try again.");
+          setErrorMsg(msg);
+          setStage("error");
+          return;
+        }
+
+        const token = String(data.access_token);
+        localStorage.setItem("deriv_token", token);
+
+        sessionStorage.removeItem("pkce_verifier");
+        sessionStorage.removeItem("oauth_state");
+
+        setStage("success");
+        setTimeout(() => setLocation("/dashboard"), 1200);
+        return;
+      } catch (e) {
+        setErrorMsg(e instanceof Error ? e.message : "Network error during login. Please try again.");
+        setStage("error");
+        return;
+      }
+    }
+
+    // ── Legacy flow: Deriv returns tokens directly in URL params ─────────────
+    // (oauth.deriv.com style: ?token1=TOKEN&loginid1=LOGINID)
     let chosenToken: string | null = null;
     for (let i = 1; i <= 10; i++) {
-      const token   = params.get(`token${i}`);
+      const token = params.get(`token${i}`);
       const loginid = params.get(`loginid${i}`) ?? params.get(`acct${i}`);
       if (token) {
-        // Prefer real accounts (loginid not starting with VR)
         if (!chosenToken) chosenToken = token;
         if (loginid && !loginid.startsWith("VR")) {
           chosenToken = token;
@@ -37,20 +93,18 @@ export default function DerivCallbackPage() {
         }
       }
     }
-
-    // Also handle plain ?token=... format
     if (!chosenToken) chosenToken = params.get("token");
 
-    if (!chosenToken) {
-      setErrorMsg("No token received from Deriv. Please try again.");
-      setStage("error");
+    if (chosenToken) {
+      localStorage.setItem("deriv_token", chosenToken);
+      setStage("success");
+      setTimeout(() => setLocation("/dashboard"), 1200);
       return;
     }
 
-    localStorage.setItem("deriv_token", chosenToken);
-    setStage("success");
-    setTimeout(() => setLocation("/dashboard"), 1500);
-  }, []);
+    setErrorMsg("No token received from Deriv. Please try again.");
+    setStage("error");
+  }
 
   return (
     <div
@@ -87,8 +141,8 @@ export default function DerivCallbackPage() {
             <>
               <Loader size={32} className="animate-spin text-primary" />
               <div>
-                <div className="font-orbitron text-sm font-bold text-primary tracking-wider">VERIFYING</div>
-                <div className="font-rajdhani text-xs text-muted-foreground mt-1">Checking authorization…</div>
+                <div className="font-orbitron text-sm font-bold text-primary tracking-wider">PROCESSING</div>
+                <div className="font-rajdhani text-xs text-muted-foreground mt-1">Completing Deriv login…</div>
               </div>
             </>
           )}
@@ -111,12 +165,12 @@ export default function DerivCallbackPage() {
                 <div className="font-rajdhani text-xs text-red-300 mt-2 leading-relaxed">{errorMsg}</div>
               </div>
               <button
-                onClick={() => setLocation("/login")}
+                onClick={() => setLocation("/dashboard")}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all"
                 style={{ background: "#00e5ff", color: "#050a0f" }}
               >
                 <LogIn size={13} />
-                Try Again
+                Back to Dashboard
               </button>
             </>
           )}

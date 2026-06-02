@@ -8,6 +8,7 @@ stack = "BEST_EFFORT_FALLBACK"
 [userenv.shared]
 PORT = "5000"
 BASE_PATH = "/"
+DERIV_OAUTH_CLIENT_ID = "33rtqtfBfgRZqEpvayxel"
 
 [workflows]
 runButton = "Project"
