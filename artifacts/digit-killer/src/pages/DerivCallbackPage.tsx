@@ -5,10 +5,23 @@ import logoPath from "@assets/WhatsApp_Image_2026-05-30_at_19.05.28_178015714613
 
 type Stage = "verifying" | "success" | "error";
 
+interface AccountEntry {
+  id: string;
+  type: string;
+  currency: string;
+  loginid?: string;
+}
+
+interface AccountsResponse {
+  data?: AccountEntry[];
+  accounts?: AccountEntry[];
+}
+
 export default function DerivCallbackPage() {
   const [, setLocation] = useLocation();
   const [stage, setStage] = useState<Stage>("verifying");
   const [errorMsg, setErrorMsg] = useState("");
+  const [statusMsg, setStatusMsg] = useState("Completing Deriv login…");
 
   useEffect(() => {
     void handleCallback();
@@ -26,12 +39,15 @@ export default function DerivCallbackPage() {
       return;
     }
 
-    // ── PKCE OAuth 2.0 flow: exchange code for access_token ──────────────────
+    // ── PKCE OAuth 2.0 flow ──────────────────────────────────────────────────
+    // auth.deriv.com returns: ?code=...&state=...
+    // The Bearer access_token is NOT usable for the legacy WS authorize call.
+    // We need to: exchange code → access_token → accounts list → OTP WS URL.
     const code = params.get("code");
     const returnedState = params.get("state");
 
     if (code && returnedState) {
-      const savedState = sessionStorage.getItem("oauth_state");
+      const savedState   = sessionStorage.getItem("oauth_state");
       const codeVerifier = sessionStorage.getItem("pkce_verifier");
 
       if (!savedState || returnedState !== savedState) {
@@ -47,29 +63,67 @@ export default function DerivCallbackPage() {
       }
 
       try {
+        // Step 1: Exchange authorization code for Bearer access_token
+        setStatusMsg("Exchanging authorization code…");
         const redirectUri = `${window.location.origin}/callback`;
-        const resp = await fetch("/api/deriv/oauth/exchange", {
-          method: "POST",
+        const exchResp = await fetch("/api/deriv/oauth/exchange", {
+          method:  "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code, code_verifier: codeVerifier, redirect_uri: redirectUri }),
+          body:    JSON.stringify({ code, code_verifier: codeVerifier, redirect_uri: redirectUri }),
         });
+        const exchData = await exchResp.json() as Record<string, unknown>;
 
-        const data = await resp.json() as Record<string, unknown>;
-
-        if (!resp.ok || !data.access_token) {
-          const msg = String(data.error ?? "Token exchange failed. Please try again.");
+        if (!exchResp.ok || !exchData.access_token) {
+          const msg = String(exchData.error ?? "Token exchange failed. Please try again.");
           setErrorMsg(msg);
           setStage("error");
           return;
         }
 
-        const token = String(data.access_token);
-        localStorage.setItem("deriv_token", token);
-
+        const accessToken = String(exchData.access_token);
         sessionStorage.removeItem("pkce_verifier");
         sessionStorage.removeItem("oauth_state");
 
+        // Step 2: Get the accounts list from Deriv REST API
+        setStatusMsg("Fetching account details…");
+        let accountId  = "";
+        let accountCurrency = "USD";
+        let accountVirtual  = false;
+        let accountLoginid  = "";
+
+        try {
+          const acctResp = await fetch("/api/deriv/oauth/accounts", {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (acctResp.ok) {
+            const acctData = await acctResp.json() as AccountsResponse;
+            const accounts = acctData.data ?? acctData.accounts ?? [];
+            // Prefer first real account; fallback to demo
+            const realAcct = accounts.find((a) => a.type === "real") ?? accounts[0];
+            if (realAcct) {
+              accountId       = realAcct.id ?? realAcct.loginid ?? "";
+              accountCurrency = realAcct.currency ?? "USD";
+              accountVirtual  = realAcct.type === "demo" || realAcct.type === "virtual";
+              accountLoginid  = realAcct.loginid ?? realAcct.id ?? "";
+            }
+          }
+        } catch {
+          // Accounts fetch failed — continue without account info
+        }
+
+        // Step 3: Store Bearer token and account info for reconnect
+        // NOTE: stored separately from deriv_token (legacy trading token) to avoid
+        // DerivContext trying to use a Bearer token with the legacy WS authorize call.
+        localStorage.setItem("deriv_access_token",   accessToken);
+        if (accountId)       localStorage.setItem("deriv_otp_account_id",    accountId);
+        if (accountLoginid)  localStorage.setItem("deriv_otp_loginid",       accountLoginid);
+        if (accountCurrency) localStorage.setItem("deriv_otp_currency",      accountCurrency);
+        localStorage.setItem("deriv_otp_virtual", accountVirtual ? "1" : "0");
+        // Clear any stale legacy token so DerivContext uses the new API path
+        localStorage.removeItem("deriv_token");
+
         setStage("success");
+        setStatusMsg("Redirecting to dashboard…");
         setTimeout(() => setLocation("/dashboard"), 1200);
         return;
       } catch (e) {
@@ -79,23 +133,34 @@ export default function DerivCallbackPage() {
       }
     }
 
-    // ── Legacy flow: Deriv returns tokens directly in URL params ─────────────
-    // (oauth.deriv.com style: ?token1=TOKEN&loginid1=LOGINID)
+    // ── Legacy OAuth flow ────────────────────────────────────────────────────
+    // oauth.deriv.com returns: ?token1=TRADING_TOKEN&loginid1=CR123456[&token2=...&loginid2=...]
+    // The token here IS a direct WS trading token compatible with authorize.
     let chosenToken: string | null = null;
+
     for (let i = 1; i <= 10; i++) {
-      const token = params.get(`token${i}`);
+      const token   = params.get(`token${i}`);
       const loginid = params.get(`loginid${i}`) ?? params.get(`acct${i}`);
       if (token) {
         if (!chosenToken) chosenToken = token;
+        // Prefer first real (non-VR) account
         if (loginid && !loginid.startsWith("VR")) {
           chosenToken = token;
           break;
         }
       }
     }
+    // Fallback: plain ?token= param
     if (!chosenToken) chosenToken = params.get("token");
 
     if (chosenToken) {
+      // Clear any previous new-API credentials to avoid confusion
+      localStorage.removeItem("deriv_access_token");
+      localStorage.removeItem("deriv_otp_account_id");
+      localStorage.removeItem("deriv_otp_loginid");
+      localStorage.removeItem("deriv_otp_currency");
+      localStorage.removeItem("deriv_otp_virtual");
+
       localStorage.setItem("deriv_token", chosenToken);
       setStage("success");
       setTimeout(() => setLocation("/dashboard"), 1200);
@@ -142,7 +207,7 @@ export default function DerivCallbackPage() {
               <Loader size={32} className="animate-spin text-primary" />
               <div>
                 <div className="font-orbitron text-sm font-bold text-primary tracking-wider">PROCESSING</div>
-                <div className="font-rajdhani text-xs text-muted-foreground mt-1">Completing Deriv login…</div>
+                <div className="font-rajdhani text-xs text-muted-foreground mt-1">{statusMsg}</div>
               </div>
             </>
           )}
@@ -152,7 +217,7 @@ export default function DerivCallbackPage() {
               <CheckCircle size={32} className="text-green-400" style={{ filter: "drop-shadow(0 0 8px #22c55e)" }} />
               <div>
                 <div className="font-orbitron text-sm font-bold tracking-wider" style={{ color: "#22c55e" }}>AUTHENTICATED</div>
-                <div className="font-rajdhani text-xs text-muted-foreground mt-1">Redirecting to dashboard…</div>
+                <div className="font-rajdhani text-xs text-muted-foreground mt-1">{statusMsg}</div>
               </div>
             </>
           )}
