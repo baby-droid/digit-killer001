@@ -6,8 +6,14 @@
  *   "Connect on Dashboard" banner when disconnected — no login form.
  *
  * This gives a single-login UX: connect once on Dashboard, trade everywhere.
+ *
+ * OAuth strategy:
+ *   Primary  — legacy oauth.deriv.com (app_id=1089) — accepts any redirect_uri,
+ *              returns trading token directly, works with the WS proxy authorize call.
+ *   Secondary — PKCE (auth.deriv.com) — requires the redirect_uri to be registered
+ *              in Deriv's app dashboard; returns a Bearer access_token for the new API.
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import {
   Wifi, Loader, DollarSign, User, ChevronDown,
@@ -15,12 +21,24 @@ import {
 } from "lucide-react";
 import { useDerivContext } from "@/context/DerivContext";
 
-const CLIENT_ID    = "33rtqtfBfgRZqEpvayxel";
-const REDIRECT_URI = `${window.location.origin}/callback`;
-
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
 
-async function buildPkceUrl(): Promise<string> {
+interface OauthConfig {
+  client_id:    string;
+  app_id:       string;
+  redirect_uri: string;
+}
+
+// Fetch the correct redirect_uri from the server (handles Replit proxy domains).
+async function fetchOauthConfig(): Promise<OauthConfig> {
+  const r = await fetch("/api/deriv/oauth/config");
+  if (!r.ok) throw new Error("Config fetch failed");
+  return r.json() as Promise<OauthConfig>;
+}
+
+// Build a PKCE URL for the new auth.deriv.com OAuth 2.0 flow.
+// NOTE: requires the redirect_uri to be pre-registered in Deriv's developer dashboard.
+async function buildPkceUrl(clientId: string, redirectUri: string): Promise<string> {
   const array        = crypto.getRandomValues(new Uint8Array(64));
   const codeVerifier = Array.from(array).map((v) => ALPHABET[v % ALPHABET.length]).join("");
 
@@ -28,7 +46,9 @@ async function buildPkceUrl(): Promise<string> {
   const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(hash)))
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
-  const state = crypto.getRandomValues(new Uint8Array(16)).reduce((s, b) => s + b.toString(16).padStart(2, "0"), "");
+  const state = crypto.getRandomValues(new Uint8Array(16)).reduce(
+    (s, b) => s + b.toString(16).padStart(2, "0"), ""
+  );
 
   sessionStorage.setItem("pkce_verifier", codeVerifier);
   sessionStorage.setItem("oauth_state",   state);
@@ -36,8 +56,8 @@ async function buildPkceUrl(): Promise<string> {
   return (
     `https://auth.deriv.com/oauth2/auth` +
     `?response_type=code` +
-    `&client_id=${CLIENT_ID}` +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&client_id=${clientId}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&scope=trade%20account_manage` +
     `&state=${state}` +
     `&code_challenge=${codeChallenge}` +
@@ -53,12 +73,14 @@ export default function DerivConnectionBar() {
   const deriv = useDerivContext();
   const [location] = useLocation();
 
-  const [tokenInput,  setTokenInput ] = useState(() => localStorage.getItem("deriv_token") ?? "");
+  const [tokenInput,  setTokenInput] = useState(() => localStorage.getItem("deriv_token") ?? "");
   const [showConnect, setShowConnect] = useState(false);
   const [loginMode,   setLoginMode  ] = useState<"oauth" | "pat">("oauth");
+  const [oauthMode,   setOauthMode  ] = useState<"legacy" | "pkce">("legacy");
   const [showAccts,   setShowAccts  ] = useState(false);
   const [demoMsg,     setDemoMsg    ] = useState<string | null>(null);
   const [resetting,   setResetting  ] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   const onDashboard = isDashboard(location);
 
@@ -66,13 +88,43 @@ export default function DerivConnectionBar() {
     disconnected: "#ef4444", connecting: "#fb8c00", authorizing: "#facc15", connected: "#22c55e",
   }[deriv.status];
 
+  // ── OAuth login ─────────────────────────────────────────────────────────────
   async function handleDerivOAuth() {
+    setOauthLoading(true);
     try {
-      const url = await buildPkceUrl();
-      window.location.href = url;
+      const cfg = await fetchOauthConfig();
+      const redirectUri = cfg.redirect_uri || `${window.location.origin}/callback`;
+
+      if (oauthMode === "pkce") {
+        // PKCE flow — requires redirect_uri registered in Deriv developer dashboard
+        // at https://developers.deriv.com/dashboard
+        const url = await buildPkceUrl(cfg.client_id, redirectUri);
+        window.location.href = url;
+      } else {
+        // Legacy OAuth — app_id=1089 accepts any redirect_uri, no registration needed.
+        // Returns trading token directly in callback URL as token1=... loginid1=...
+        window.location.href =
+          `https://oauth.deriv.com/oauth2/authorize` +
+          `?app_id=${cfg.app_id}` +
+          `&redirect_uri=${encodeURIComponent(redirectUri)}`;
+      }
     } catch {
-      window.location.href =
-        `https://oauth.deriv.com/oauth2/authorize?app_id=1089&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+      // Fallback: use client-side origin if server config fails
+      const redirectUri = `${window.location.origin}/callback`;
+      if (oauthMode === "pkce") {
+        try {
+          const url = await buildPkceUrl("33rtqtfBfgRZqEpvayxel", redirectUri);
+          window.location.href = url;
+        } catch {
+          window.location.href =
+            `https://oauth.deriv.com/oauth2/authorize?app_id=1089&redirect_uri=${encodeURIComponent(redirectUri)}`;
+        }
+      } else {
+        window.location.href =
+          `https://oauth.deriv.com/oauth2/authorize?app_id=1089&redirect_uri=${encodeURIComponent(redirectUri)}`;
+      }
+    } finally {
+      setOauthLoading(false);
     }
   }
 
@@ -99,6 +151,7 @@ export default function DerivConnectionBar() {
 
   function handleDisconnect() {
     localStorage.removeItem("deriv_token");
+    localStorage.removeItem("deriv_access_token");
     deriv.disconnect();
   }
 
@@ -160,7 +213,7 @@ export default function DerivConnectionBar() {
             </div>
 
             <div className="p-4 space-y-3">
-              {/* Mode tabs */}
+              {/* Login method tabs */}
               <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "rgba(0,229,255,0.2)" }}>
                 {(["oauth", "pat"] as const).map((m) => (
                   <button key={m} onClick={() => setLoginMode(m)}
@@ -175,15 +228,43 @@ export default function DerivConnectionBar() {
               {loginMode === "oauth" && (
                 <div className="space-y-3">
                   <p className="font-rajdhani text-xs text-muted-foreground">
-                    Log in with your Deriv email and password. You will be securely redirected to Deriv and returned here automatically.
+                    Log in with your Deriv email and password. You will be redirected to Deriv and returned here automatically.
                   </p>
+
+                  {/* OAuth login button */}
                   <button
                     onClick={handleDerivOAuth}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all"
+                    disabled={oauthLoading}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all disabled:opacity-60"
                     style={{ background: "linear-gradient(135deg,#ff444f,#e91e8c)", color: "#fff", boxShadow: "0 0 18px rgba(233,30,140,0.3)" }}
                   >
-                    <LogIn size={13} /> Login with Deriv Account
+                    {oauthLoading
+                      ? <><span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" /> Redirecting…</>
+                      : <><LogIn size={13} /> Login with Deriv Account</>
+                    }
                   </button>
+
+                  {/* PKCE toggle (advanced) */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      onClick={() => setOauthMode(m => m === "legacy" ? "pkce" : "legacy")}
+                      className="flex items-center gap-1.5 font-rajdhani text-[10px] transition-colors"
+                      style={{ color: oauthMode === "pkce" ? "#00e5ff" : "rgba(0,229,255,0.35)" }}
+                    >
+                      <span
+                        className="inline-block w-3 h-3 rounded-sm border flex-shrink-0"
+                        style={{
+                          background: oauthMode === "pkce" ? "#00e5ff" : "transparent",
+                          borderColor: oauthMode === "pkce" ? "#00e5ff" : "rgba(0,229,255,0.3)",
+                        }}
+                      />
+                      Use new OAuth 2.0 (PKCE)
+                    </button>
+                    {oauthMode === "pkce" && (
+                      <span className="font-rajdhani text-[9px] text-yellow-400/70">Requires redirect URL registered at developers.deriv.com</span>
+                    )}
+                  </div>
+
                   <p className="font-rajdhani text-[10px] text-muted-foreground text-center">
                     Your credentials never touch this app — Deriv's secure login handles everything.
                   </p>

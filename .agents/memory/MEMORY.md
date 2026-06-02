@@ -4,3 +4,4 @@
 - [Auth gate pattern](auth-gate.md) — localStorage user_token/admin_token; Protected component in App.tsx; Splash checks token → /dashboard or /login.
 - [Global Deriv WS context](deriv-context-arch.md) — DerivContext.tsx wraps entire app; one shared WebSocket per session; all trading pages use useDerivContext(); auto-restores from localStorage deriv_token on mount.
 - [Trade engine accuracy](trade-engine-accuracy.md) — accurate win/loss uses proposal_open_contract subscription (not polling); bulk trades fire parallel proposal+buy via Promise.all; DerivConnectionBar is required on every trading page.
+- [Deriv OAuth token types](deriv-oauth-tokens.md) — legacy oauth.deriv.com returns WS trading tokens; PKCE auth.deriv.com returns Bearer access_token (REST only); never mix them.
