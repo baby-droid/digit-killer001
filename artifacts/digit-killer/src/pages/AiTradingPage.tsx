@@ -307,6 +307,9 @@ export default function AiTradingPage() {
   const [trades,     setTrades    ] = useState<TradeResult[]>([]);
   const [openContracts, setOpenContracts] = useState<number[]>([]);
   const [killActive, setKillActive] = useState(false);
+  const [coolingOff, setCoolingOff] = useState(false);
+  const consecutiveWinsRef = useRef(0);
+  const coolingOffRef = useRef(false);
 
   const lastAutoKeyRef = useRef("");
   const { digit: currentDigit, price: livePrice, digitFreq, tickCount: digitTickCount } = useLiveDigitData(symbol);
@@ -380,13 +383,26 @@ export default function AiTradingPage() {
         const anyLoss = results.some((r) => r.status === "lost" || r.status === "error");
         if (anyLoss) setLossStreak((s) => s + 1); else setLossStreak(0);
       }
+      // ── 3-win cool-off ───────────────────────────────────────────────────────
+      const allWon = results.every((r) => r.status === "won");
+      if (allWon) {
+        consecutiveWinsRef.current += 1;
+        if (consecutiveWinsRef.current >= 3) {
+          consecutiveWinsRef.current = 0;
+          coolingOffRef.current = true;
+          setCoolingOff(true);
+          setTimeout(() => { coolingOffRef.current = false; setCoolingOff(false); }, 2000);
+        }
+      } else {
+        consecutiveWinsRef.current = 0;
+      }
     } catch {}
     setExecuting(false);
   }
 
   // ── Auto-trade trigger ─────────────────────────────────────────────────────
   useEffect(() => {
-    if (!autoTrade || !bestSignal || deriv.status !== "connected" || executing || blocked) return;
+    if (!autoTrade || !bestSignal || deriv.status !== "connected" || executing || blocked || coolingOffRef.current) return;
     if (limitHit) { setAutoTrade(false); return; }
     const key = `${bestSignal.contract_type}-${bestSignal.confidence.toFixed(1)}`;
     if (key === lastAutoKeyRef.current) return;
@@ -942,7 +958,15 @@ export default function AiTradingPage() {
           </button>
         </div>
 
-        {autoTrade && (
+        {coolingOff && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg font-rajdhani text-xs animate-pulse"
+            style={{ background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.25)", color: "#facc15" }}>
+            <span>⚡</span>
+            3 clean wins — cooling off · scanning for clean setup…
+          </div>
+        )}
+
+        {autoTrade && !coolingOff && (
           <div className="flex items-center gap-2 text-xs font-rajdhani" style={{ color: "#22c55e" }}>
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             Auto-trading · ≥{logicCfg.minConfidence}% · {logicCfg.refreshMs / 1000}s refresh

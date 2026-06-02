@@ -517,10 +517,15 @@ export default function DerivTraderPage() {
   const slHit = slEnabled && sessionPL <= -slAmount;
   const tradingBlocked = tpHit || slHit;
 
+  // ── 3-win cool-off ────────────────────────────────────────────────────────────
+  const consecutiveWinsRef = useRef(0);
+  const coolingOffDTRef = useRef(false);
+  const [coolingOffDT, setCoolingOffDT] = useState(false);
+
   // Auto-trade: instant trigger — fires immediately when a new ≥87% signal arrives
   const lastAutoSigRef = useRef("");
   useEffect(()=>{
-    if (!autoTrade||derivWS.status!=="connected"||trading||tradingBlocked) return;
+    if (!autoTrade||derivWS.status!=="connected"||trading||tradingBlocked||coolingOffDTRef.current) return;
     if (!aiSignal||aiSignal.confidence<MIN_CONF) return;
     const sigKey=`${aiSignal.contract_type}-${aiSignal.confidence.toFixed(1)}`;
     if (sigKey===lastAutoSigRef.current) return;
@@ -569,6 +574,18 @@ export default function DerivTraderPage() {
           setSessionPL((prev)=>prev+profit);
           setOpenContracts((p)=>p.filter((x)=>x.cid!==cid));
           if(martingaleOn){ if(won) setLossStreak(0); else setLossStreak((ls)=>ls+1); }
+          // ── 3-win cool-off ───────────────────────────────────────────────────
+          if (won) {
+            consecutiveWinsRef.current += 1;
+            if (consecutiveWinsRef.current >= 3) {
+              consecutiveWinsRef.current = 0;
+              coolingOffDTRef.current = true;
+              setCoolingOffDT(true);
+              setTimeout(() => { coolingOffDTRef.current = false; setCoolingOffDT(false); }, 2000);
+            }
+          } else {
+            consecutiveWinsRef.current = 0;
+          }
         } catch { setOpenContracts((p)=>p.filter((x)=>x.cid!==cid)); }
       },(ticks+3)*1000);
     } catch(err){
@@ -939,7 +956,14 @@ export default function DerivTraderPage() {
             </button>
           </div>
 
-          {autoTrade && !tradingBlocked && <div className="flex items-center gap-2 text-xs font-rajdhani" style={{ color:"#22c55e" }}>
+          {coolingOffDT && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg font-rajdhani text-xs animate-pulse"
+              style={{ background:"rgba(250,204,21,0.08)",border:"1px solid rgba(250,204,21,0.25)",color:"#facc15" }}>
+              <span>⚡</span>
+              3 clean wins — cooling off · scanning for clean setup…
+            </div>
+          )}
+          {autoTrade && !tradingBlocked && !coolingOffDT && <div className="flex items-center gap-2 text-xs font-rajdhani" style={{ color:"#22c55e" }}>
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"/>Auto-trading active
           </div>}
 
