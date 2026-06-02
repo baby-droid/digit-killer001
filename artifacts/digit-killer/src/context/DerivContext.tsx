@@ -60,11 +60,14 @@ function proxyUrl(): string {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export function DerivProvider({ children }: { children: React.ReactNode }) {
-  const ws         = useRef<WebSocket | null>(null);
-  const reqIdRef   = useRef(2);
-  const listeners  = useRef<Map<number, Listener>>(new Map());
-  const typeListeners = useRef<Map<string, Set<Listener>>>(new Map());
-  const tokenRef   = useRef<string>("");
+  const ws              = useRef<WebSocket | null>(null);
+  const reqIdRef        = useRef(2);
+  const listeners       = useRef<Map<number, Listener>>(new Map());
+  const typeListeners   = useRef<Map<string, Set<Listener>>>(new Map());
+  const tokenRef        = useRef<string>("");
+  // Use a ref to track authorized state inside the socket message handler
+  // (avoids stale-closure bug where account state is always null inside onmessage)
+  const authorizedRef   = useRef(false);
 
   const [status,      setStatus     ] = useState<ConnectionStatus>("disconnected");
   const [account,     setAccount    ] = useState<DerivAccount | null>(null);
@@ -123,8 +126,10 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // openSocket has NO dependency on account state — we use authorizedRef instead
   const openSocket = useCallback((token: string) => {
     ws.current?.close(1000);
+    authorizedRef.current = false;
     const socket = new WebSocket(proxyUrl());
     ws.current = socket;
 
@@ -141,11 +146,15 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
 
         if (type === "proxy_open") { setStatus("authorizing"); return; }
         if (type === "proxy_reconnecting") {
-          setStatus("connecting"); setAccount(null); setBalance(null); return;
+          setStatus("connecting"); setAccount(null); setBalance(null);
+          authorizedRef.current = false;
+          return;
         }
         if (type === "proxy_error") {
           setError(String((msg as Record<string, string>).message ?? "Connection error"));
-          setStatus("disconnected"); setAccount(null); setBalance(null); return;
+          setStatus("disconnected"); setAccount(null); setBalance(null);
+          authorizedRef.current = false;
+          return;
         }
         if (type === "proxy_not_ready") return;
 
@@ -156,15 +165,17 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
           const auth = msg.authorize as Record<string, unknown>;
           const acctList = (auth.account_list as DerivAccountListItem[] | undefined) ?? [];
           setAccountList(acctList);
-          setAccount({
+          const acct: DerivAccount = {
             loginid:    auth.loginid    as string,
             currency:   auth.currency   as string,
             balance:    auth.balance    as number,
             is_virtual: (auth.is_virtual as number) === 1,
-          });
+          };
+          setAccount(acct);
           setBalance(auth.balance as number);
           setStatus("connected");
           setError(null);
+          authorizedRef.current = true;
           // Subscribe to live balance updates
           socket.send(JSON.stringify({ balance: 1, subscribe: 1, req_id: reqIdRef.current++ }));
         }
@@ -175,24 +186,29 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
           setAccount((prev) => prev ? { ...prev, balance: b.balance as number } : null);
         }
 
-        if (msgType === "proposal_open_contract") {
-          // Bubbled to type subscribers — used by trade engines
-        }
-
-        if ((msgType === "error" || msg.error) && !account) {
+        // Only treat errors as fatal auth errors if we haven't been authorized yet.
+        // Using authorizedRef (not stale account state) to check this correctly.
+        if (msg.error && !authorizedRef.current) {
           const errMsg = (msg.error as Record<string, string>)?.message ?? "Auth error";
-          setError(errMsg);
-          setStatus("disconnected");
+          // Only disconnect for auth-related errors, not proposal/trade errors
+          const errCode = (msg.error as Record<string, string>)?.code ?? "";
+          const isAuthError = errCode === "AuthorizationRequired" || errCode === "InvalidToken"
+            || errCode === "AuthorizationFailed" || msgType === "authorize";
+          if (isAuthError) {
+            setError(errMsg);
+            setStatus("disconnected");
+          }
         }
       } catch { /* ignore parse errors */ }
     };
 
     socket.onclose = (e) => {
       setStatus("disconnected"); setAccount(null); setBalance(null);
+      authorizedRef.current = false;
       if (e.code !== 1000 && e.code !== 1001) {
         setError(
           e.code === 1006
-            ? "Connection dropped (1006) — verify your token has Trade permission, then reconnect."
+            ? "Connection dropped (1006) — check your internet, then reconnect."
             : `Disconnected (${e.code}) — click Connect to retry`
         );
       }
@@ -202,7 +218,7 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
       setError("Cannot reach the backend server — check the API Server workflow.");
       setStatus("disconnected");
     };
-  }, [account, dispatch]);
+  }, [dispatch]); // removed 'account' dependency — use authorizedRef instead
 
   const connect = useCallback((token: string) => {
     const t = token.trim();
@@ -216,6 +232,7 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
     tokenRef.current = "";
     ws.current?.close(1000); ws.current = null;
     setStatus("disconnected"); setAccount(null); setAccountList([]); setBalance(null); setError(null);
+    authorizedRef.current = false;
     listeners.current.clear();
   }, []);
 
@@ -229,10 +246,11 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => () => { ws.current?.close(1000); }, []);
 
-  // Auto-restore last token on mount
+  // Auto-restore last token on mount (shared across all pages via localStorage)
   useEffect(() => {
     const token = localStorage.getItem("deriv_token");
     if (token) connect(token);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

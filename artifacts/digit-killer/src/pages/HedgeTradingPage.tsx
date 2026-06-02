@@ -11,12 +11,11 @@ import {
   GitMerge, Play, Square, Bot, CheckCircle, XCircle, Loader,
   AlertCircle, ShieldCheck, DollarSign, Settings2, RefreshCw, X,
 } from "lucide-react";
-import { useSymbol } from "@/context/SymbolContext";
 import { useDerivContext } from "@/context/DerivContext";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
 import {
   executeBulk, nextStake, bulkGroupId,
-  type TradeResult, type TradeSpec, MARKUP_PCT,
+  type TradeResult, type TradeSpec,
 } from "@/lib/tradeEngine";
 
 // ─── Contract type definitions ─────────────────────────────────────────────────
@@ -182,7 +181,8 @@ function LegCard({
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function HedgeTradingPage() {
-  const { symbol } = useSymbol();
+  // Local symbol state with full market list (not global SymbolContext)
+  const [symbol, setHedgeSymbol] = useState("R_50");
   const deriv = useDerivContext();
 
   const [selectedGroup, setSelectedGroup] = useState(0);
@@ -297,13 +297,36 @@ export default function HedgeTradingPage() {
         <div>
           <h1 className="font-orbitron text-xl font-bold text-foreground tracking-wider">HEDGE TRADING</h1>
           <p className="font-rajdhani text-sm text-muted-foreground">
-            Execute two contract types simultaneously · {MARKUP_PCT}% markup
+            Execute two contract types simultaneously · accurate real-time P&amp;L
           </p>
         </div>
       </div>
 
       {/* Deriv connection bar */}
       <DerivConnectionBar />
+
+      {/* Market / symbol selector */}
+      <div className="cyber-card p-3">
+        <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-2">Market</div>
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { g: "Volatility",    items: [{ k: "R_10", l: "V10" }, { k: "R_25", l: "V25" }, { k: "R_50", l: "V50" }, { k: "R_75", l: "V75" }, { k: "R_100", l: "V100" }] },
+            { g: "Vol 1s",        items: [{ k: "1HZ10V", l: "V10 1s" }, { k: "1HZ15V", l: "V15 1s" }, { k: "1HZ25V", l: "V25 1s" }, { k: "1HZ30V", l: "V30 1s" }, { k: "1HZ50V", l: "V50 1s" }, { k: "1HZ75V", l: "V75 1s" }, { k: "1HZ90V", l: "V90 1s" }, { k: "1HZ100V", l: "V100 1s" }] },
+            { g: "Market",        items: [{ k: "RDBEAR", l: "Bear" }, { k: "RDBULL", l: "Bull" }, { k: "STPINDXV", l: "Step" }] },
+            { g: "Crash/Boom",    items: [{ k: "CRASH300N", l: "Crash 300" }, { k: "CRASH500", l: "Crash 500" }, { k: "CRASH1000", l: "Crash 1000" }, { k: "BOOM300N", l: "Boom 300" }, { k: "BOOM500", l: "Boom 500" }, { k: "BOOM1000", l: "Boom 1000" }] },
+            { g: "Jump",          items: [{ k: "JD10", l: "Jump 10" }, { k: "JD25", l: "Jump 25" }, { k: "JD50", l: "Jump 50" }, { k: "JD75", l: "Jump 75" }, { k: "JD100", l: "Jump 100" }] },
+          ].flatMap(({ items }) => items).map(({ k, l }) => (
+            <button key={k} onClick={() => setHedgeSymbol(k)}
+              className="px-2.5 py-1 rounded font-orbitron text-[9px] font-bold tracking-wider transition-all"
+              style={symbol === k
+                ? { background: "#00e5ff", color: "#050a0f" }
+                : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.55)" }}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1.5 font-orbitron text-[10px] font-bold text-primary">{symbol}</div>
+      </div>
 
       {/* Contract group selector */}
       <div className="flex flex-wrap gap-2">
@@ -471,7 +494,7 @@ export default function HedgeTradingPage() {
             <span className="font-orbitron text-xs font-bold text-primary tracking-wider">TRADE LOG · {trades.length} entries</span>
             <button onClick={() => setTrades([])} className="font-rajdhani text-[10px] text-muted-foreground hover:text-foreground transition-colors">clear</button>
           </div>
-          <div className="max-h-64 overflow-y-auto divide-y" style={{ divideColor: "rgba(0,229,255,0.05)" }}>
+          <div className="max-h-64 overflow-y-auto divide-y divide-white/5">
             {trades.map((t) => (
               <div key={t.id} className="flex items-center gap-3 px-4 py-2.5"
                 style={{ background: t.status === "won" ? "rgba(34,197,94,0.05)" : t.status === "lost" ? "rgba(239,68,68,0.05)" : "transparent" }}>

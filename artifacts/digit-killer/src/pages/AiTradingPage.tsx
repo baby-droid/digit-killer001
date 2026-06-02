@@ -4,7 +4,7 @@ import { useDerivContext } from "@/context/DerivContext";
 import type { DerivAccountListItem } from "@/context/DerivContext";
 import {
   executeBulk, nextStake, bulkGroupId,
-  type TradeResult, type TradeSpec, MARKUP_PCT,
+  type TradeResult, type TradeSpec,
 } from "@/lib/tradeEngine";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
 import {
@@ -271,7 +271,7 @@ export default function AiTradingPage() {
           <div>
             <h2 className="font-orbitron text-lg font-bold text-primary tracking-wider">AI TRADING</h2>
             <p className="font-rajdhani text-[10px] text-muted-foreground">
-              ≥{logicCfg.minConfidence}% confidence gate · {logicCfg.refreshMs / 1000}s refresh · {MARKUP_PCT}% markup
+              ≥{logicCfg.minConfidence}% confidence gate · {logicCfg.refreshMs / 1000}s refresh · real-time accurate P&amp;L
             </p>
           </div>
         </div>

@@ -15,7 +15,7 @@ import { useDerivContext } from "@/context/DerivContext";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
 import {
   executeBulk, nextStake, bulkGroupId,
-  type TradeResult, type TradeSpec, MARKUP_PCT,
+  type TradeResult, type TradeSpec,
 } from "@/lib/tradeEngine";
 
 // ─── All available contract types ─────────────────────────────────────────────
@@ -54,21 +54,38 @@ const CONTRACT_CATEGORIES = ["Digits", "Rise/Fall", "Only", "Tick"];
 
 // All Deriv synthetic markets available for Speed Lab
 const ALL_MARKETS = [
-  { key: "R_10",    label: "Vol 10" },
-  { key: "R_25",    label: "Vol 25" },
-  { key: "R_50",    label: "Vol 50" },
-  { key: "R_75",    label: "Vol 75" },
-  { key: "R_100",   label: "Vol 100" },
-  { key: "1HZ10V",  label: "1s V10" },
-  { key: "1HZ25V",  label: "1s V25" },
-  { key: "1HZ50V",  label: "1s V50" },
-  { key: "1HZ100V", label: "1s V100" },
-  { key: "CRASH500", label: "Crash 500" },
-  { key: "BOOM500",  label: "Boom 500" },
-  { key: "JD10",    label: "Jump 10" },
-  { key: "JD50",    label: "Jump 50" },
-  { key: "JD100",   label: "Jump 100" },
-  { key: "STPINDXV", label: "Step Index" },
+  // Volatility standard
+  { key: "R_10",     label: "Vol 10",      group: "Volatility" },
+  { key: "R_25",     label: "Vol 25",      group: "Volatility" },
+  { key: "R_50",     label: "Vol 50",      group: "Volatility" },
+  { key: "R_75",     label: "Vol 75",      group: "Volatility" },
+  { key: "R_100",    label: "Vol 100",     group: "Volatility" },
+  // Volatility 1s
+  { key: "1HZ10V",   label: "V10 (1s)",    group: "Volatility 1s" },
+  { key: "1HZ15V",   label: "V15 (1s)",    group: "Volatility 1s" },
+  { key: "1HZ25V",   label: "V25 (1s)",    group: "Volatility 1s" },
+  { key: "1HZ30V",   label: "V30 (1s)",    group: "Volatility 1s" },
+  { key: "1HZ50V",   label: "V50 (1s)",    group: "Volatility 1s" },
+  { key: "1HZ75V",   label: "V75 (1s)",    group: "Volatility 1s" },
+  { key: "1HZ90V",   label: "V90 (1s)",    group: "Volatility 1s" },
+  { key: "1HZ100V",  label: "V100 (1s)",   group: "Volatility 1s" },
+  // Daily Reset / Market Indices
+  { key: "RDBEAR",   label: "Bear Market", group: "Market" },
+  { key: "RDBULL",   label: "Bull Market", group: "Market" },
+  { key: "STPINDXV", label: "Step Index",  group: "Market" },
+  // Crash / Boom
+  { key: "CRASH300N", label: "Crash 300",  group: "Crash/Boom" },
+  { key: "CRASH500",  label: "Crash 500",  group: "Crash/Boom" },
+  { key: "CRASH1000", label: "Crash 1000", group: "Crash/Boom" },
+  { key: "BOOM300N",  label: "Boom 300",   group: "Crash/Boom" },
+  { key: "BOOM500",   label: "Boom 500",   group: "Crash/Boom" },
+  { key: "BOOM1000",  label: "Boom 1000",  group: "Crash/Boom" },
+  // Jump
+  { key: "JD10",     label: "Jump 10",     group: "Jump" },
+  { key: "JD25",     label: "Jump 25",     group: "Jump" },
+  { key: "JD50",     label: "Jump 50",     group: "Jump" },
+  { key: "JD75",     label: "Jump 75",     group: "Jump" },
+  { key: "JD100",    label: "Jump 100",    group: "Jump" },
 ];
 
 // ─── Speed Lab Page ────────────────────────────────────────────────────────────
@@ -214,7 +231,7 @@ export default function SpeedLabPage() {
         <div>
           <h1 className="font-orbitron text-xl font-bold text-foreground tracking-wider">SPEED LAB</h1>
           <p className="font-rajdhani text-sm text-muted-foreground">
-            All selected contracts × all selected markets in parallel · {MARKUP_PCT}% markup
+            All selected contracts × all selected markets in parallel · accurate real-time P&amp;L
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg"

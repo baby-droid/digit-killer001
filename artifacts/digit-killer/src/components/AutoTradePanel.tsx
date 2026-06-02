@@ -12,7 +12,7 @@ import {
 import { useDerivContext } from "@/context/DerivContext";
 import {
   executeBulk, nextStake, bulkGroupId,
-  type TradeResult, type TradeSpec, MARKUP_PCT,
+  type TradeResult, type TradeSpec,
 } from "@/lib/tradeEngine";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -226,8 +226,8 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
           <Bot size={15} className="text-primary" />
           <span className="font-orbitron text-sm font-bold text-primary tracking-wider">AUTO TRADE</span>
           <span className="font-rajdhani text-[10px] text-muted-foreground">· {pageLabel}</span>
-          <span className="font-rajdhani text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(0,229,255,0.1)", color: "rgba(0,229,255,0.7)" }}>
-            {MARKUP_PCT}% MARKUP
+          <span className="font-rajdhani text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.1)", color: "rgba(34,197,94,0.7)" }}>
+            REAL P&amp;L
           </span>
           {limitHit && (
             <span className="font-rajdhani text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}>

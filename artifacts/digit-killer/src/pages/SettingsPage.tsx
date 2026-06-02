@@ -88,7 +88,7 @@ function LoginForm({ onSuccess }: { onSuccess: (token: string) => void }) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault(); setError("");
     adminLogin.mutate({ data: { password } }, {
-      onSuccess: (res) => { const r = res as { token: string }; onSuccess(r.token); },
+      onSuccess: (res: unknown) => { const r = res as { token: string }; onSuccess(r.token); },
       onError: () => setError("Invalid admin PIN"),
     });
   };
@@ -587,7 +587,7 @@ function UserManagementPanel() {
   const handleCreate = () => {
     if (!username.trim()) return;
     createUser.mutate({ data: { username: username.trim() } }, {
-      onSuccess: (res) => { setNewUser(res as User); setUsername(""); qc.invalidateQueries({ queryKey: getGetUsersQueryKey() }); },
+      onSuccess: (res: unknown) => { setNewUser(res as User); setUsername(""); qc.invalidateQueries({ queryKey: getGetUsersQueryKey() }); },
     });
   };
   const handleDelete = (id: number) => {
@@ -683,8 +683,114 @@ function UserManagementPanel() {
   );
 }
 
+// ─── API Connection Guide ──────────────────────────────────────────────────────
+function ApiConnectionGuide() {
+  const steps = [
+    {
+      title: "Generate a Deriv API Token",
+      color: "#00e5ff",
+      steps: [
+        "Go to app.deriv.com → Accounts → API token",
+        "Click 'Create new token'",
+        "Enable: Read, Trade, Payments, Admin (all 4)",
+        "Copy the token — it only appears once",
+      ],
+    },
+    {
+      title: "Connect in Speed Lab or Hedge Trading",
+      color: "#22c55e",
+      steps: [
+        "Open Speed Lab or Hedge Trading page",
+        "Paste the token in the 'Deriv API Token' field",
+        "Click 'Connect' — status should show 'CONNECTED'",
+        "Your account balance will appear when connected",
+      ],
+    },
+    {
+      title: "Common Issues & Fixes",
+      color: "#facc15",
+      steps: [
+        "InvalidToken → Regenerate token with ALL permissions checked",
+        "Connecting then disconnecting → Token missing Trading permissions",
+        "Proposal errors → Ensure symbol is active on your Deriv account",
+        "Connection drops → Check internet, click Connect again to retry",
+      ],
+    },
+    {
+      title: "Token Permissions Checklist",
+      color: "#a78bfa",
+      steps: [
+        "✅ Read — required to see account info",
+        "✅ Trade — required to place contracts",
+        "✅ Payments — required for balance updates",
+        "✅ Admin — required for account switching",
+      ],
+    },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="cyber-card p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Wifi size={14} className="text-primary" />
+          <span className="font-orbitron text-xs font-bold tracking-widest text-primary uppercase">
+            Speed Lab & Hedge Trading — Connection Guide
+          </span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {steps.map((section) => (
+            <div key={section.title} className="rounded-xl p-3"
+              style={{ background: `${section.color}08`, border: `1px solid ${section.color}30` }}>
+              <div className="font-orbitron text-[10px] font-bold tracking-wider mb-2"
+                style={{ color: section.color }}>
+                {section.title}
+              </div>
+              <ul className="space-y-1.5">
+                {section.steps.map((s, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="font-orbitron text-[9px] font-bold mt-0.5 flex-shrink-0"
+                      style={{ color: section.color }}>{i + 1}.</span>
+                    <span className="font-rajdhani text-[11px] text-muted-foreground leading-tight">{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="cyber-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <AlertCircle size={13} className="text-yellow-400" />
+          <span className="font-orbitron text-[10px] font-bold tracking-widest uppercase text-yellow-400">
+            Error Code Reference
+          </span>
+        </div>
+        <div className="space-y-2">
+          {[
+            { code: "InvalidToken",          color: "#ef4444", fix: "Regenerate PAT with all 4 permissions. Old tokens expire or are revoked." },
+            { code: "AuthorizationRequired", color: "#f97316", fix: "Send the auth token first before making requests. Reconnect." },
+            { code: "RateLimit",             color: "#facc15", fix: "Too many requests. Wait 30s then reconnect." },
+            { code: "proxy_error",           color: "#a78bfa", fix: "Server cannot reach Deriv WS. Check API Server workflow is running." },
+            { code: "1006 Abnormal Close",   color: "#64748b", fix: "Network interruption. The proxy auto-reconnects; if it fails, click Connect." },
+          ].map(({ code, color, fix }) => (
+            <div key={code} className="flex items-start gap-3 px-3 py-2 rounded-lg"
+              style={{ background: "rgba(255,255,255,0.025)" }}>
+              <code className="font-orbitron text-[9px] font-bold flex-shrink-0 mt-0.5 px-1.5 py-0.5 rounded"
+                style={{ background: `${color}18`, color, border: `1px solid ${color}40` }}>
+                {code}
+              </code>
+              <span className="font-rajdhani text-[11px] text-muted-foreground leading-tight">{fix}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Admin Panel with tabs ────────────────────────────────────────────────────
-type Tab = "health" | "troubleshoot" | "diagnostics" | "policy" | "users" | "pin" | "commission";
+type Tab = "health" | "troubleshoot" | "diagnostics" | "policy" | "users" | "pin" | "commission" | "api-guide";
 
 function AdminPanel() {
   const [tab, setTab] = useState<Tab>("health");
@@ -692,6 +798,7 @@ function AdminPanel() {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "health",       label: "System Health",    icon: <Activity size={12} /> },
     { id: "troubleshoot", label: "Troubleshoot",     icon: <Wifi size={12} /> },
+    { id: "api-guide",    label: "API Connection",   icon: <Shield size={12} /> },
     { id: "diagnostics",  label: "Diagnostics",      icon: <Server size={12} /> },
     { id: "policy",       label: "Storage Policy",   icon: <Database size={12} /> },
     { id: "users",        label: "Users",            icon: <Users size={12} /> },
@@ -716,6 +823,7 @@ function AdminPanel() {
 
       {tab === "health"       && <SystemHealthPanel />}
       {tab === "troubleshoot" && <PageTroubleshooter />}
+      {tab === "api-guide"    && <ApiConnectionGuide />}
       {tab === "diagnostics"  && <FullDiagnosticsPanel />}
       {tab === "policy"       && <StoragePolicyPanel />}
       {tab === "users"        && <UserManagementPanel />}
