@@ -54,13 +54,14 @@ router.get("/report", async (req, res): Promise<void> => {
 
     const currentPrice = prices[prices.length - 1];
 
+    const { symbol: _s, sample_size: _ss, ...advancedRest } = advanced;
     res.json({
       symbol,
       current_price: currentPrice,
       sample_size: prices.length,
       generated_at: new Date().toISOString(),
       digit_distribution: digits,
-      ...advanced,
+      ...advancedRest,
       summary: {
         most_frequent: digits.reduce((a, b) => (b.count > a.count ? b : a)).digit,
         least_frequent: digits.reduce((a, b) => (b.count < a.count ? b : a)).digit,

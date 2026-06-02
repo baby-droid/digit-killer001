@@ -10,7 +10,10 @@
 import WebSocket from "ws";
 import { logger } from "./logger";
 
-const DERIV_WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089";
+const DERIV_WS_URLS = [
+  "wss://ws.binaryws.com/websockets/v3?app_id=1089",   // legacy (primary)
+  "wss://api.derivws.com/trading/v1/options/ws/public", // beta public (fallback)
+];
 const MAX_BUFFER = 1100;
 
 type TickListener = (price: number, digit: number) => void;
@@ -52,15 +55,32 @@ function extractDigit(price: number, symbol: string): number {
   return Math.abs(Math.round(price * factor)) % 10;
 }
 
-function connect(symbol: string): void {
-  if (wsConns.has(symbol)) return;
+function connectWithUrl(symbol: string, urlIndex: number): void {
+  const url = DERIV_WS_URLS[urlIndex];
+  if (!url) {
+    logger.error({ symbol }, "All Deriv WS URLs exhausted for tick stream");
+    return;
+  }
 
-  const ws = new WebSocket(DERIV_WS_URL);
+  const ws = new WebSocket(url);
   wsConns.set(symbol, ws);
 
+  let opened = false;
+
+  const openTimeout = setTimeout(() => {
+    if (!opened) {
+      logger.warn({ symbol, url, urlIndex }, "Tick stream open timeout, trying fallback");
+      wsConns.delete(symbol);
+      try { ws.terminate(); } catch {}
+      connectWithUrl(symbol, urlIndex + 1);
+    }
+  }, 10000);
+
   ws.on("open", () => {
+    opened = true;
+    clearTimeout(openTimeout);
     ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
-    logger.debug({ symbol }, "tick stream subscribed");
+    logger.debug({ symbol, urlIndex }, "tick stream subscribed");
   });
 
   ws.on("message", (raw) => {
@@ -98,16 +118,32 @@ function connect(symbol: string): void {
   });
 
   ws.on("close", () => {
+    clearTimeout(openTimeout);
     wsConns.delete(symbol);
     const timer = setTimeout(() => {
       reconnTimers.delete(symbol);
-      connect(symbol);
+      connectWithUrl(symbol, 0); // restart from primary URL
     }, 2500);
     reconnTimers.set(symbol, timer);
     logger.debug({ symbol }, "tick stream closed — reconnecting");
   });
 
-  ws.on("error", () => { ws.terminate(); });
+  ws.on("error", (err) => {
+    clearTimeout(openTimeout);
+    if (!opened && urlIndex + 1 < DERIV_WS_URLS.length) {
+      logger.warn({ symbol, url, err: String(err) }, "Tick stream error on URL, trying fallback");
+      wsConns.delete(symbol);
+      try { ws.terminate(); } catch {}
+      connectWithUrl(symbol, urlIndex + 1);
+    } else {
+      ws.terminate();
+    }
+  });
+}
+
+function connect(symbol: string): void {
+  if (wsConns.has(symbol)) return;
+  connectWithUrl(symbol, 0);
 }
 
 /** Start/ensure a live subscription. Safe to call many times. */

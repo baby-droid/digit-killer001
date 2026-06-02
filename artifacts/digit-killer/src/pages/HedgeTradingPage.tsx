@@ -254,6 +254,117 @@ function LegCard({
   );
 }
 
+// ── Market definitions (module-level) ──────────────────────────────────────────
+const HEDGE_MARKETS = [
+  { key: "R_10",     label: "V10",      group: "Volatility" },
+  { key: "R_25",     label: "V25",      group: "Volatility" },
+  { key: "R_50",     label: "V50",      group: "Volatility" },
+  { key: "R_75",     label: "V75",      group: "Volatility" },
+  { key: "R_100",    label: "V100",     group: "Volatility" },
+  { key: "1HZ10V",   label: "V10 1s",  group: "Vol 1s" },
+  { key: "1HZ25V",   label: "V25 1s",  group: "Vol 1s" },
+  { key: "1HZ50V",   label: "V50 1s",  group: "Vol 1s" },
+  { key: "1HZ75V",   label: "V75 1s",  group: "Vol 1s" },
+  { key: "1HZ100V",  label: "V100 1s", group: "Vol 1s" },
+  { key: "CRASH300N",label: "C300",    group: "Crash/Boom" },
+  { key: "CRASH500", label: "C500",    group: "Crash/Boom" },
+  { key: "CRASH1000",label: "C1000",   group: "Crash/Boom" },
+  { key: "BOOM300N", label: "B300",    group: "Crash/Boom" },
+  { key: "BOOM500",  label: "B500",    group: "Crash/Boom" },
+  { key: "BOOM1000", label: "B1000",   group: "Crash/Boom" },
+  { key: "JD10",     label: "Jump 10", group: "Jump" },
+  { key: "JD25",     label: "Jump 25", group: "Jump" },
+  { key: "JD50",     label: "Jump 50", group: "Jump" },
+  { key: "JD75",     label: "Jump 75", group: "Jump" },
+  { key: "JD100",    label: "Jump 100",group: "Jump" },
+];
+
+interface MarketScan {
+  legA: AiLegInfo;
+  legB: AiLegInfo;
+}
+
+function HedgeScanPanel({
+  scans, markets, onExecute, colorA, colorB, labelA, labelB,
+}: {
+  scans: Record<string, MarketScan>;
+  markets: string[];
+  onExecute?: (mkt: string) => void;
+  colorA: string; colorB: string; labelA: string; labelB: string;
+}) {
+  const ranked = markets
+    .filter((m) => scans[m])
+    .map((m) => {
+      const sc = scans[m]!;
+      return { key: m, label: HEDGE_MARKETS.find((x) => x.key === m)?.label ?? m, sc,
+        combined: (sc.legA.confidence + sc.legB.confidence) / 2 };
+    })
+    .sort((a, b) => b.combined - a.combined);
+
+  if (ranked.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border overflow-hidden" style={{ borderColor: "rgba(0,229,255,0.2)" }}>
+      <div className="px-3 py-2 flex items-center gap-2" style={{ background: "rgba(0,229,255,0.06)", borderBottom: "1px solid rgba(0,229,255,0.12)" }}>
+        <ScanLine size={12} className="text-primary" />
+        <span className="font-orbitron text-[10px] font-bold text-primary tracking-wider">MULTI-MARKET SCAN RESULTS</span>
+        <span className="ml-auto font-rajdhani text-[9px] text-muted-foreground">{ranked.length} markets · sorted by combined confidence</span>
+      </div>
+      <div className="divide-y" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
+        {ranked.map(({ key, label, sc, combined }, idx) => (
+          <div key={key} className="flex items-center gap-3 px-3 py-2 hover:bg-white/2 transition-colors">
+            {/* Rank */}
+            <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: idx === 0 ? "#00e5ff" : "rgba(255,255,255,0.06)", color: idx === 0 ? "#050a0f" : "#888" }}>
+              <span className="font-orbitron text-[8px] font-bold">{idx + 1}</span>
+            </div>
+            {/* Market label */}
+            <span className="font-orbitron text-[10px] font-bold w-14 flex-shrink-0" style={{ color: idx === 0 ? "#00e5ff" : "#aaa" }}>{label}</span>
+            {/* Leg A bar */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1 mb-0.5">
+                <span className="font-rajdhani text-[8px] text-muted-foreground w-8">A</span>
+                <div className="flex-1 h-1 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+                  <div className="h-full rounded-full" style={{ width: `${sc.legA.confidence}%`, background: colorA }} />
+                </div>
+                <span className="font-orbitron text-[8px] font-bold w-7 text-right" style={{ color: colorA }}>{sc.legA.confidence.toFixed(0)}%</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="font-rajdhani text-[8px] text-muted-foreground w-8">B</span>
+                <div className="flex-1 h-1 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+                  <div className="h-full rounded-full" style={{ width: `${sc.legB.confidence}%`, background: colorB }} />
+                </div>
+                <span className="font-orbitron text-[8px] font-bold w-7 text-right" style={{ color: colorB }}>{sc.legB.confidence.toFixed(0)}%</span>
+              </div>
+            </div>
+            {/* Combined */}
+            <div className="text-center flex-shrink-0 w-12">
+              <div className="font-orbitron text-[10px] font-bold" style={{ color: combined >= 70 ? "#22c55e" : combined >= 55 ? "#facc15" : "#888" }}>
+                {combined.toFixed(0)}%
+              </div>
+              <div className="font-rajdhani text-[8px] text-muted-foreground">avg</div>
+            </div>
+            {/* Best badge or execute */}
+            {idx === 0 ? (
+              <span className="px-1.5 py-0.5 rounded font-orbitron text-[8px] font-bold flex-shrink-0"
+                style={{ background: "rgba(0,229,255,0.15)", border: "1px solid rgba(0,229,255,0.35)", color: "#00e5ff" }}>BEST</span>
+            ) : onExecute ? (
+              <button onClick={() => onExecute(key)}
+                className="px-2 py-0.5 rounded font-orbitron text-[8px] font-bold transition-all flex-shrink-0"
+                style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#aaa" }}>
+                USE
+              </button>
+            ) : <div className="w-10 flex-shrink-0" />}
+          </div>
+        ))}
+      </div>
+      <div className="px-3 py-1.5 text-center font-rajdhani text-[9px] text-muted-foreground" style={{ background: "rgba(0,0,0,0.2)" }}>
+        {labelA} vs {labelB} · Best market auto-selected for execution
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function HedgeTradingPage() {
   const deriv = useDerivContext();
@@ -294,6 +405,12 @@ export default function HedgeTradingPage() {
   const [trades,         setTrades        ] = useState<TradeResult[]>([]);
   const [showSettings,   setShowSettings  ] = useState(false);
 
+  // ── Multi-market scanner ──────────────────────────────────────────────────────
+  const [multiScan,       setMultiScan      ] = useState(false);
+  const [scanMarkets,     setScanMarkets    ] = useState<string[]>(["R_10","R_25","R_50","R_75","R_100"]);
+  const [marketScans,     setMarketScans    ] = useState<Record<string, MarketScan>>({});
+  const [scanning,        setScanning       ] = useState(false);
+
   // ── 3-win cool-off ────────────────────────────────────────────────────────────
   const consecutiveWinsRef = useRef(0);
   const [coolingOff, setCoolingOff] = useState(false);
@@ -316,37 +433,61 @@ export default function HedgeTradingPage() {
     });
   }, []);
 
+  /** Find best matching signal from a list for a given contract */
+  function findBestSignal(signals: AiSignal[], contract: ContractOption): AiLegInfo {
+    const matches = signals.filter((s) => {
+      if (s.contract_type !== contract.contract_type) return false;
+      if (contract.barrier !== undefined && s.barrier !== undefined && String(s.barrier) !== String(contract.barrier)) return false;
+      if (contract.digit !== undefined && s.digit !== undefined && s.digit !== contract.digit) return false;
+      return true;
+    });
+    if (matches.length === 0) return { confidence: 50, psych_score: 50, favors_win: false, strategy: "", reason: "", found: false };
+    const best = matches.reduce((a, b) => (b.confidence > a.confidence ? b : a));
+    return {
+      confidence: best.confidence, psych_score: best.psych_score ?? 50,
+      favors_win: best.psych_favors_win ?? false,
+      strategy: best.strategy ?? "", reason: best.reason ?? "", found: true,
+    };
+  }
+
   /** Fetch AI signals and compute per-leg confidence */
   async function fetchAiForLegs(): Promise<{ infoA: AiLegInfo; infoB: AiLegInfo }> {
     const res = await fetch(`/api/ai-signals?symbol=${symbol}`);
     if (!res.ok) throw new Error("AI signal fetch failed");
     const data = await res.json() as { signals?: AiSignal[]; all_signals?: AiSignal[] };
     const signals: AiSignal[] = [...(data.signals ?? []), ...(data.all_signals ?? [])];
+    return {
+      infoA: findBestSignal(signals, legA.contract),
+      infoB: findBestSignal(signals, legB.contract),
+    };
+  }
 
-    function findBest(ct: string, barrier?: number | string, digit?: number): AiLegInfo {
-      const matches = signals.filter((s) => {
-        if (s.contract_type !== ct) return false;
-        if (barrier !== undefined && s.barrier !== undefined && String(s.barrier) !== String(barrier)) return false;
-        if (digit !== undefined && s.digit !== undefined && s.digit !== digit) return false;
-        return true;
-      });
-      if (matches.length === 0) {
-        return { confidence: 50, psych_score: 50, favors_win: false, strategy: "", reason: "", found: false };
-      }
-      const best = matches.reduce((a, b) => (b.confidence > a.confidence ? b : a));
-      return {
-        confidence: best.confidence,
-        psych_score: best.psych_score ?? 50,
-        favors_win: best.psych_favors_win ?? false,
-        strategy: best.strategy ?? "",
-        reason: best.reason ?? "",
-        found: true,
-      };
-    }
-
-    const infoA = findBest(legA.contract.contract_type, legA.contract.barrier, legA.contract.digit);
-    const infoB = findBest(legB.contract.contract_type, legB.contract.barrier, legB.contract.digit);
-    return { infoA, infoB };
+  /** Multi-market scan: fetch signals for all selected markets in parallel */
+  async function scanAllMarkets() {
+    if (scanMarkets.length === 0 || scanning) return;
+    setScanning(true);
+    const results: Record<string, MarketScan> = {};
+    await Promise.all(
+      scanMarkets.map(async (mkt) => {
+        try {
+          const res = await fetch(`/api/ai-signals?symbol=${mkt}`);
+          if (!res.ok) return;
+          const data = await res.json() as { signals?: AiSignal[]; all_signals?: AiSignal[] };
+          const signals: AiSignal[] = [...(data.signals ?? []), ...(data.all_signals ?? [])];
+          results[mkt] = {
+            legA: findBestSignal(signals, legA.contract),
+            legB: findBestSignal(signals, legB.contract),
+          };
+        } catch { /* silently skip failed markets */ }
+      })
+    );
+    setMarketScans(results);
+    // Auto-select best market (highest combined confidence)
+    const best = Object.entries(results)
+      .map(([mkt, sc]) => ({ mkt, combined: (sc.legA.confidence + sc.legB.confidence) / 2 }))
+      .sort((a, b) => b.combined - a.combined)[0];
+    if (best) setHedgeSymbol(best.mkt);
+    setScanning(false);
   }
 
   async function executeHedge() {
@@ -435,15 +576,7 @@ export default function HedgeTradingPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoMode, deriv.status, blocked, executing, fetchingAI, legA.ticks, legB.ticks]);
 
-  const isBusy = executing || fetchingAI;
-
-  const MARKETS_FLAT = [
-    { g: "Volatility",  items: [{ k: "R_10", l: "V10" }, { k: "R_25", l: "V25" }, { k: "R_50", l: "V50" }, { k: "R_75", l: "V75" }, { k: "R_100", l: "V100" }] },
-    { g: "Vol 1s",      items: [{ k: "1HZ10V", l: "V10 1s" }, { k: "1HZ15V", l: "V15 1s" }, { k: "1HZ25V", l: "V25 1s" }, { k: "1HZ30V", l: "V30 1s" }, { k: "1HZ50V", l: "V50 1s" }, { k: "1HZ75V", l: "V75 1s" }, { k: "1HZ90V", l: "V90 1s" }, { k: "1HZ100V", l: "V100 1s" }] },
-    { g: "Market",      items: [{ k: "RDBEAR", l: "Bear" }, { k: "RDBULL", l: "Bull" }, { k: "STPINDXV", l: "Step" }] },
-    { g: "Crash/Boom",  items: [{ k: "CRASH300N", l: "Crash 300" }, { k: "CRASH500", l: "Crash 500" }, { k: "CRASH1000", l: "Crash 1000" }, { k: "BOOM300N", l: "Boom 300" }, { k: "BOOM500", l: "Boom 500" }, { k: "BOOM1000", l: "Boom 1000" }] },
-    { g: "Jump",        items: [{ k: "JD10", l: "Jump 10" }, { k: "JD25", l: "Jump 25" }, { k: "JD50", l: "Jump 50" }, { k: "JD75", l: "Jump 75" }, { k: "JD100", l: "Jump 100" }] },
-  ].flatMap(({ items }) => items);
+  const isBusy = executing || fetchingAI || scanning;
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
@@ -534,21 +667,101 @@ export default function HedgeTradingPage() {
         </div>
       )}
 
-      {/* ── Market selector ──────────────────────────────────────────────────── */}
-      <div className="rounded-xl border p-3" style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,229,255,0.02)" }}>
-        <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-2">Market · <span className="font-orbitron text-primary font-bold">{symbol}</span></div>
-        <div className="flex flex-wrap gap-1.5">
-          {MARKETS_FLAT.map(({ k, l }) => (
-            <button key={k} onClick={() => { setHedgeSymbol(k); setAiLegA(null); setAiLegB(null); }}
-              className="px-2.5 py-1 rounded font-orbitron text-[9px] font-bold tracking-wider transition-all"
-              style={symbol === k
-                ? { background: "#00e5ff", color: "#050a0f" }
-                : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.55)" }}>
-              {l}
+      {/* ── Market selector / Multi-market scanner ──────────────────────────── */}
+      <div className="rounded-xl border p-3 space-y-3" style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,229,255,0.02)" }}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase">
+            Market · <span className="font-orbitron text-primary font-bold">{HEDGE_MARKETS.find((m) => m.key === symbol)?.label ?? symbol}</span>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {/* Multi-scan toggle */}
+            <button
+              onClick={() => { setMultiScan((p) => !p); setMarketScans({}); }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-orbitron text-[9px] font-bold transition-all border"
+              style={multiScan
+                ? { background: "rgba(0,229,255,0.15)", borderColor: "#00e5ff", color: "#00e5ff" }
+                : { background: "rgba(255,255,255,0.04)", borderColor: "rgba(255,255,255,0.12)", color: "#666" }}>
+              <ScanLine size={9} /> {multiScan ? "SCANNER ON" : "MULTI SCAN"}
             </button>
-          ))}
+            {/* Scan button (visible when multiScan is on) */}
+            {multiScan && (
+              <button
+                onClick={() => void scanAllMarkets()}
+                disabled={scanning || scanMarkets.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg font-orbitron text-[9px] font-bold transition-all disabled:opacity-50"
+                style={{ background: "rgba(0,229,255,0.12)", border: "1px solid rgba(0,229,255,0.35)", color: "#00e5ff" }}>
+                {scanning ? <><Loader size={9} className="animate-spin" /> Scanning…</> : <><Zap size={9} /> Scan {scanMarkets.length} Markets</>}
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Single market selector (when multi-scan is OFF) */}
+        {!multiScan && (
+          <div className="flex flex-wrap gap-1.5">
+            {HEDGE_MARKETS.map(({ key: k, label: l }) => (
+              <button key={k} onClick={() => { setHedgeSymbol(k); setAiLegA(null); setAiLegB(null); }}
+                className="px-2.5 py-1 rounded font-orbitron text-[9px] font-bold tracking-wider transition-all"
+                style={symbol === k
+                  ? { background: "#00e5ff", color: "#050a0f" }
+                  : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.55)" }}>
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Multi-select market picker (when multi-scan is ON) */}
+        {multiScan && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="font-rajdhani text-[9px] text-muted-foreground">Select markets to scan:</span>
+              <button onClick={() => setScanMarkets(HEDGE_MARKETS.slice(0, 5).map((m) => m.key))}
+                className="font-rajdhani text-[9px] text-primary hover:underline">Vol only</button>
+              <button onClick={() => setScanMarkets(HEDGE_MARKETS.map((m) => m.key))}
+                className="font-rajdhani text-[9px] text-primary hover:underline">All</button>
+              <button onClick={() => setScanMarkets([])}
+                className="font-rajdhani text-[9px] text-muted-foreground hover:underline">Clear</button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {HEDGE_MARKETS.map(({ key: k, label: l }) => {
+                const inScan = scanMarkets.includes(k);
+                const sc = marketScans[k];
+                const combined = sc ? (sc.legA.confidence + sc.legB.confidence) / 2 : null;
+                return (
+                  <button key={k}
+                    onClick={() => setScanMarkets((p) => inScan ? p.filter((x) => x !== k) : [...p, k])}
+                    className="px-2.5 py-1 rounded font-orbitron text-[9px] font-bold tracking-wider transition-all relative"
+                    style={inScan
+                      ? { background: "rgba(0,229,255,0.15)", border: `1px solid ${combined !== null ? (combined >= 70 ? "#22c55e" : combined >= 55 ? "#facc15" : "#00e5ff") : "#00e5ff"}`, color: "#00e5ff" }
+                      : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#555" }}>
+                    {l}
+                    {combined !== null && inScan && (
+                      <span className="absolute -top-1.5 -right-1.5 px-1 rounded font-orbitron text-[7px] font-bold"
+                        style={{ background: combined >= 70 ? "#22c55e" : combined >= 55 ? "#facc15" : "#888", color: "#050a0f" }}>
+                        {combined.toFixed(0)}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* ── Multi-market scan results panel ─────────────────────────────────── */}
+      {multiScan && Object.keys(marketScans).length > 0 && (
+        <HedgeScanPanel
+          scans={marketScans}
+          markets={scanMarkets}
+          colorA={group.color}
+          colorB={group.colorB}
+          labelA={legA.contract.label}
+          labelB={legB.contract.label}
+          onExecute={(mkt) => { setHedgeSymbol(mkt); setAiLegA(null); setAiLegB(null); }}
+        />
+      )}
 
       {/* ── Contract group selector ──────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2">
