@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Bot, Play, Square, DollarSign, Zap, CheckCircle, XCircle,
   Loader, AlertCircle, ShieldCheck, X, Settings2, RefreshCw,
+  SlidersHorizontal, Filter,
 } from "lucide-react";
 import { useDerivContext } from "@/context/DerivContext";
 import {
@@ -35,13 +36,19 @@ interface AutoTradePanelProps {
   pageLabel?: string;
 }
 
-const MIN_CONFIDENCE = 87;
+const DEFAULT_MIN_CONFIDENCE = 87;
 
 export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: AutoTradePanelProps) {
   const deriv = useDerivContext();
 
   const [open,          setOpen         ] = useState(false);
   const [showSettings,  setShowSettings ] = useState(false);
+  const [showLogic,     setShowLogic    ] = useState(false);
+
+  // ── Logic settings ──────────────────────────────────────────────────────────
+  const [minConfidence,  setMinConfidence ] = useState(DEFAULT_MIN_CONFIDENCE);
+  const [tickOverride,   setTickOverride  ] = useState<"signal" | 1 | 2 | 3 | 5 | 10>("signal");
+  const [allowedTypes,   setAllowedTypes  ] = useState<Set<string>>(new Set());
 
   // ── Stake + Martingale ──────────────────────────────────────────────────────
   const [baseStake,    setBaseStake   ] = useState(1);
@@ -78,7 +85,12 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
   const blocked  = tpHit || slHit || limitHit;
 
   const readySignals = signals
-    .filter((s) => s.confidence >= MIN_CONFIDENCE && s.psych_favors_win !== false)
+    .filter((s) => {
+      if (s.confidence < minConfidence) return false;
+      if (s.psych_favors_win === false) return false;
+      if (allowedTypes.size > 0 && !allowedTypes.has(s.contract_type)) return false;
+      return true;
+    })
     .sort((a, b) => b.confidence - a.confidence);
   const bestSignal = readySignals[0] ?? null;
 
@@ -113,13 +125,14 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
     const groupId  = bulkGroupId();
     const count    = Math.max(1, bulkCount);
     const stake    = currentStake;
+    const ticks    = tickOverride === "signal" ? sig.ticks : tickOverride;
 
     setExecuting(true);
     const specs: TradeSpec[] = Array.from({ length: count }, (_, i) => ({
       contract_type: sig.contract_type,
       symbol,
       stake,
-      ticks: sig.ticks,
+      ticks,
       barrier: sig.barrier,
       digit: sig.digit,
       label: count > 1 ? `${sig.label} ×${i + 1}/${count}` : sig.label,
@@ -223,6 +236,9 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setShowLogic((p) => !p)} className="p-1 rounded hover:bg-white/10 transition-all" title="Logic Settings">
+            <SlidersHorizontal size={13} className={showLogic ? "text-primary" : "text-muted-foreground"} />
+          </button>
           <button onClick={() => setShowSettings((p) => !p)} className="p-1 rounded hover:bg-white/10 transition-all">
             <Settings2 size={13} className="text-muted-foreground" />
           </button>
@@ -233,6 +249,101 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
       </div>
 
       <div className="p-4 space-y-4">
+
+        {/* ── Logic Settings Panel ──────────────────────────────────────── */}
+        {showLogic && (
+          <div className="rounded-xl p-3 space-y-4 border" style={{ background: "rgba(0,0,0,0.3)", borderColor: "rgba(0,229,255,0.2)" }}>
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal size={12} className="text-primary" />
+              <span className="font-rajdhani font-bold text-[10px] tracking-widest uppercase text-muted-foreground">Logic Settings</span>
+            </div>
+
+            {/* Confidence gate */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-rajdhani text-[9px] text-muted-foreground tracking-widest uppercase">
+                  Min Confidence Gate
+                </label>
+                <span className="font-orbitron text-xs font-bold text-primary">{minConfidence}%</span>
+              </div>
+              <input type="range" min={50} max={99} step={1} value={minConfidence}
+                onChange={(e) => setMinConfidence(parseInt(e.target.value))}
+                className="w-full accent-primary" />
+              <div className="flex gap-1.5 mt-1.5">
+                {[70, 80, 87, 90, 95].map((v) => (
+                  <button key={v} onClick={() => setMinConfidence(v)}
+                    className="px-2 py-0.5 rounded font-orbitron text-[9px] font-bold transition-all"
+                    style={minConfidence === v
+                      ? { background: "#00e5ff", color: "#050a0f" }
+                      : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#888" }}>
+                    {v}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tick override */}
+            <div>
+              <label className="font-rajdhani text-[9px] text-muted-foreground tracking-widest uppercase block mb-1.5">
+                Tick Duration Override
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {(["signal", 1, 2, 3, 5, 10] as const).map((v) => (
+                  <button key={v} onClick={() => setTickOverride(v)}
+                    className="px-2.5 py-1 rounded font-orbitron text-[10px] font-bold transition-all"
+                    style={tickOverride === v
+                      ? { background: "#00e5ff", color: "#050a0f" }
+                      : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#aaa" }}>
+                    {v === "signal" ? "Signal" : `${v}T`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Contract type filter */}
+            <div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <Filter size={10} className="text-muted-foreground" />
+                <label className="font-rajdhani text-[9px] text-muted-foreground tracking-widest uppercase">
+                  Contract Type Filter
+                </label>
+                <span className="font-rajdhani text-[9px] text-muted-foreground">
+                  ({allowedTypes.size === 0 ? "all" : `${allowedTypes.size} selected`})
+                </span>
+                {allowedTypes.size > 0 && (
+                  <button onClick={() => setAllowedTypes(new Set())}
+                    className="ml-auto font-rajdhani text-[9px] text-muted-foreground hover:text-foreground underline">
+                    Clear (all)
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: "DIGITEVEN", label: "Even" }, { id: "DIGITODD", label: "Odd" },
+                  { id: "DIGITOVER", label: "Over" }, { id: "DIGITUNDER", label: "Under" },
+                  { id: "DIGITMATCH", label: "Match" }, { id: "DIGITDIFF", label: "Differ" },
+                  { id: "CALL", label: "Rise" }, { id: "PUT", label: "Fall" },
+                ].map(({ id, label }) => {
+                  const active = allowedTypes.size === 0 || allowedTypes.has(id);
+                  return (
+                    <button key={id}
+                      onClick={() => {
+                        const s = new Set(allowedTypes);
+                        if (s.has(id)) s.delete(id); else s.add(id);
+                        setAllowedTypes(s);
+                      }}
+                      className="px-2 py-0.5 rounded font-orbitron text-[9px] font-bold transition-all"
+                      style={active
+                        ? { background: "rgba(0,229,255,0.12)", border: "1px solid rgba(0,229,255,0.4)", color: "#00e5ff" }
+                        : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "#555" }}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Not connected notice */}
         {deriv.status !== "connected" && (
@@ -436,7 +547,7 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
             <div>
               <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-2 flex items-center gap-2">
                 <Zap size={10} className="text-primary" />
-                READY SIGNALS ≥{MIN_CONFIDENCE}%
+                READY SIGNALS ≥{minConfidence}%
                 <span className="font-orbitron text-[10px]" style={{ color: readySignals.length > 0 ? "#22c55e" : "#888" }}>
                   ({readySignals.length})
                 </span>
@@ -497,7 +608,7 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
             {autoMode && (
               <div className="flex items-center gap-2 font-rajdhani text-xs" style={{ color: "#22c55e" }}>
                 <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                Auto-trading · ≥{MIN_CONFIDENCE}% signals{bulkCount > 1 ? ` · ×${bulkCount} bulk` : ""}
+                Auto-trading · ≥{minConfidence}% signals{bulkCount > 1 ? ` · ×${bulkCount} bulk` : ""}
                 {tradeLimit > 0 && <span className="text-muted-foreground">· {tradesExecuted}/{tradeLimit} trades</span>}
               </div>
             )}

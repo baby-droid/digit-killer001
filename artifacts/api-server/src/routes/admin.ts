@@ -13,6 +13,7 @@ import {
   changeAdminPassword,
 } from "../lib/auth";
 import { getSystemStats, clearAllBuffers } from "../lib/tickStream";
+import { recordTrade, getCommissionStats, clearCommissionStore } from "../lib/commission-store";
 
 const router: IRouter = Router();
 
@@ -289,6 +290,38 @@ router.post("/admin/test-endpoint", requireAdmin, async (req, res): Promise<void
   } catch (err) {
     res.json({ ok: false, status: 0, latency_ms: Date.now() - start, error: String(err), url: full });
   }
+});
+
+// ── Commission analytics ───────────────────────────────────────────────────────
+
+// POST /api/trade-event — unauthenticated beacon from frontend after each buy
+router.post("/trade-event", (req, res): void => {
+  const { symbol, contract_type, stake, buy_price, payout, markup_pct } = req.body as {
+    symbol?: string; contract_type?: string; stake?: number;
+    buy_price?: number; payout?: number; markup_pct?: number;
+  };
+  if (symbol && contract_type && buy_price) {
+    recordTrade({
+      symbol:        String(symbol),
+      contract_type: String(contract_type),
+      stake:         Number(stake) || 0,
+      buy_price:     Number(buy_price),
+      payout:        Number(payout) || 0,
+      markup_pct:    Number(markup_pct) || 4,
+    });
+  }
+  res.json({ ok: true });
+});
+
+// GET /api/admin/commissions — admin only, returns aggregated commission analytics
+router.get("/admin/commissions", requireAdmin, (_req, res): void => {
+  res.json(getCommissionStats());
+});
+
+// DELETE /api/admin/commissions — admin only, clears commission store
+router.delete("/admin/commissions", requireAdmin, (_req, res): void => {
+  clearCommissionStore();
+  res.json({ ok: true, message: "Commission store cleared" });
 });
 
 // Quick connectivity test — tests Deriv public WS availability
