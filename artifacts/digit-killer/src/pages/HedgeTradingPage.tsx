@@ -294,6 +294,10 @@ export default function HedgeTradingPage() {
   const [trades,         setTrades        ] = useState<TradeResult[]>([]);
   const [showSettings,   setShowSettings  ] = useState(false);
 
+  // ── 3-win cool-off ────────────────────────────────────────────────────────────
+  const consecutiveWinsRef = useRef(0);
+  const [coolingOff, setCoolingOff] = useState(false);
+
   const tpHit    = tpEnabled && sessionPL >= tpAmount;
   const slHit    = slEnabled && sessionPL <= -slAmount;
   const limitHit = tradeLimit > 0 && tradesExecuted >= tradeLimit;
@@ -400,6 +404,18 @@ export default function HedgeTradingPage() {
       const [rA, rB] = results;
       if (legA.martingaleOn) setLegA((p) => ({ ...p, lossStreak: rA?.status === "lost" ? p.lossStreak + 1 : 0 }));
       if (legB.martingaleOn) setLegB((p) => ({ ...p, lossStreak: rB?.status === "lost" ? p.lossStreak + 1 : 0 }));
+      // ── 3-win cool-off ───────────────────────────────────────────────────────
+      const allWon = results.every((r) => r.status === "won");
+      if (allWon) {
+        consecutiveWinsRef.current += 1;
+        if (consecutiveWinsRef.current >= 3) {
+          consecutiveWinsRef.current = 0;
+          setCoolingOff(true);
+          setTimeout(() => setCoolingOff(false), 2000);
+        }
+      } else {
+        consecutiveWinsRef.current = 0;
+      }
     } catch { /* individual errors handled inside executeBulk */ }
     setExecuting(false);
   }
@@ -413,7 +429,7 @@ export default function HedgeTradingPage() {
     }
     if (autoRef.current) return;
     autoRef.current = setInterval(() => {
-      if (!executing && !fetchingAI && !blocked) void executeHedge();
+      if (!executing && !fetchingAI && !blocked && !coolingOff) void executeHedge();
     }, (Math.min(legA.ticks, legB.ticks) + 5) * 1000);
     return () => { if (autoRef.current) { clearInterval(autoRef.current); autoRef.current = null; } };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -694,10 +710,18 @@ export default function HedgeTradingPage() {
         </button>
       </div>
 
-      {autoMode && (
+      {autoMode && !coolingOff && (
         <div className="flex items-center gap-3 font-rajdhani text-sm" style={{ color: "#00e5ff" }}>
           <div className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ background: "#00e5ff" }} />
           Hedge auto-running{aiConfirm ? " with AI confirmation" : ""} · every {Math.min(legA.ticks, legB.ticks) + 5}s
+        </div>
+      )}
+
+      {coolingOff && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-lg font-rajdhani text-sm animate-pulse"
+          style={{ background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.25)", color: "#facc15" }}>
+          <TrendingUp size={14} />
+          3 clean wins — cooling off · scanning for clean setup…
         </div>
       )}
 

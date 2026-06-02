@@ -229,6 +229,10 @@ export default function SpeedLabPage() {
   const [trades,       setTrades     ] = useState<TradeResult[]>([]);
   const [showSettings, setShowSettings] = useState(false);
 
+  // ── 3-win cool-off ────────────────────────────────────────────────────────────
+  const consecutiveWinsRef = useRef(0);
+  const [coolingOff, setCoolingOff] = useState(false);
+
   const currentStake  = martingaleOn ? nextStake(baseStake, martMult, lossStreak) : baseStake;
   const tpHit         = tpEnabled && sessionPL >= tpAmount;
   const slHit         = slEnabled && sessionPL <= -slAmount;
@@ -282,6 +286,18 @@ export default function SpeedLabPage() {
       if (martingaleOn) {
         const anyLoss = results.some((r) => r.status === "lost" || r.status === "error");
         setLossStreak(anyLoss ? (s) => s + 1 : 0);
+      }
+      // ── 3-win cool-off ───────────────────────────────────────────────────────
+      const allWon = results.every((r) => r.status === "won");
+      if (allWon) {
+        consecutiveWinsRef.current += 1;
+        if (consecutiveWinsRef.current >= 3) {
+          consecutiveWinsRef.current = 0;
+          setCoolingOff(true);
+          setTimeout(() => setCoolingOff(false), 2000);
+        }
+      } else {
+        consecutiveWinsRef.current = 0;
       }
     } catch { /* handled per-trade */ }
     setExecuting(false);
@@ -380,6 +396,18 @@ export default function SpeedLabPage() {
         const anyLoss = results.some((r) => r.status === "lost" || r.status === "error");
         setLossStreak(anyLoss ? (s) => s + 1 : 0);
       }
+      // ── 3-win cool-off ───────────────────────────────────────────────────────
+      const allWon = results.every((r) => r.status === "won");
+      if (allWon) {
+        consecutiveWinsRef.current += 1;
+        if (consecutiveWinsRef.current >= 3) {
+          consecutiveWinsRef.current = 0;
+          setCoolingOff(true);
+          setTimeout(() => setCoolingOff(false), 2000);
+        }
+      } else {
+        consecutiveWinsRef.current = 0;
+      }
     } catch { /* handled per-trade */ }
     setExecuting(false);
   }
@@ -399,7 +427,7 @@ export default function SpeedLabPage() {
     }
     if (autoRef.current) return;
     autoRef.current = setInterval(() => {
-      if (!executing && !blocked) void executeLab();
+      if (!executing && !blocked && !coolingOff) void executeLab();
     }, autoInterval * 1000);
     return () => { if (autoRef.current) { clearInterval(autoRef.current); autoRef.current = null; } };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -782,11 +810,19 @@ export default function SpeedLabPage() {
         </button>
       </div>
 
-      {autoMode && (
+      {autoMode && !coolingOff && (
         <div className="flex items-center gap-3 font-rajdhani text-sm" style={{ color: "#e91e8c" }}>
           <div className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ background: "#e91e8c" }} />
           {aiMode ? `AI Lab scanning · ${selectedMarkets.length} markets every ${autoInterval}s` : `Speed Lab · ${manualContractCount} contracts every ${autoInterval}s`}
           {tradeLimit > 0 && <span className="text-muted-foreground">· {tradesExecuted}/{tradeLimit} trades</span>}
+        </div>
+      )}
+
+      {coolingOff && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-lg font-rajdhani text-sm animate-pulse"
+          style={{ background: "rgba(250,204,21,0.08)", border: "1px solid rgba(250,204,21,0.25)", color: "#facc15" }}>
+          <ScanLine size={14} />
+          3 clean wins — cooling off · scanning for next setup…
         </div>
       )}
 
