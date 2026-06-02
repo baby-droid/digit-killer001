@@ -24,6 +24,7 @@ import SettingsPage from "@/pages/SettingsPage";
 import ReportsPage from "@/pages/ReportsPage";
 import TeachingPage from "@/pages/TeachingPage";
 import NotFound from "@/pages/not-found";
+import DerivCallbackPage from "@/pages/DerivCallbackPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +55,8 @@ function Router() {
       {/* Root → Login page always (no splash) */}
       <Route path="/" component={LoginPage} />
       <Route path="/login" component={LoginPage} />
+      {/* Deriv OAuth callback — must be public, no auth required */}
+      <Route path="/auth/callback" component={DerivCallbackPage} />
 
       <Route path="/dashboard"><Protected><DashboardPage /></Protected></Route>
       <Route path="/wide-eye"><Protected><WideEyePage /></Protected></Route>
