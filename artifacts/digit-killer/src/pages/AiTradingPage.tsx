@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSymbol } from "@/context/SymbolContext";
 import { useDerivContext } from "@/context/DerivContext";
 import type { DerivAccountListItem } from "@/context/DerivContext";
@@ -11,7 +11,7 @@ import {
   Bot, DollarSign, Zap, Play, Square, AlertCircle,
   RefreshCw, TrendingUp, TrendingDown, SkipForward, User,
   Settings2, X, Shield, Loader, CheckCircle, XCircle,
-  SlidersHorizontal, Filter, Clock, FlaskConical,
+  SlidersHorizontal, Filter, Clock, FlaskConical, Activity,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -53,21 +53,183 @@ const DIGIT_COLORS: Record<number, string> = {
   5: "#00e5ff", 6: "#c6e500", 7: "#e53935", 8: "#e91e8c", 9: "#fdd835",
 };
 
-// ─── Live tick hook (SSE, doesn't need Deriv WS) ─────────────────────────────
-function useLiveTick(symbol: string) {
-  const [digit, setDigit] = useState(0);
+// ─── Live digit data hook — seeds 1000 ticks + SSE updates ──────────────────
+function useLiveDigitData(symbol: string) {
+  const [digit, setDigit]       = useState(0);
+  const [price, setPrice]       = useState(0);
+  const [digitFreq, setDigitFreq] = useState<number[]>(Array(10).fill(0));
+  const [tickCount, setTickCount] = useState(0);
+
+  // Seed from 1000-tick history
+  useEffect(() => {
+    if (!symbol) return;
+    fetch(`/api/digit-analysis?symbol=${encodeURIComponent(symbol)}&count=1000`)
+      .then((r) => r.json())
+      .then((data: { digits?: Array<{ digit: number; count: number }>; count?: number }) => {
+        if (!data.digits?.length) return;
+        const freq = Array(10).fill(0) as number[];
+        data.digits.forEach((d) => { freq[d.digit] = d.count; });
+        setDigitFreq(freq);
+        setTickCount(data.count ?? 1000);
+      }).catch(() => {});
+  }, [symbol]);
+
+  // SSE real-time updates
   useEffect(() => {
     if (!symbol) return;
     let es: EventSource; let dead = false;
     const open = () => {
       es = new EventSource(`/api/live-ticks?symbol=${encodeURIComponent(symbol)}`);
-      es.onmessage = (e) => { try { if (!dead) setDigit(JSON.parse(e.data).digit); } catch {} };
-      es.onerror   = () => { es.close(); if (!dead) setTimeout(open, 2000); };
+      es.onmessage = (e) => {
+        try {
+          if (dead) return;
+          const { price: p, digit: d } = JSON.parse(e.data) as { price: number; digit: number };
+          setDigit(d); setPrice(p);
+          setDigitFreq((prev) => {
+            const next = [...prev]; next[d] = (next[d] ?? 0) + 1;
+            const total = next.reduce((s, v) => s + v, 0);
+            if (total > 1000) { const r = 1000 / total; return next.map((v) => Math.round(v * r)); }
+            return next;
+          });
+          setTickCount((prev) => Math.min(prev + 1, 1000));
+        } catch {}
+      };
+      es.onerror = () => { es.close(); if (!dead) setTimeout(open, 2000); };
     };
     open();
     return () => { dead = true; es?.close(); };
   }, [symbol]);
-  return digit;
+
+  return { digit, price, digitFreq, tickCount };
+}
+
+// ─── Combined analysis from all endpoints ────────────────────────────────────
+interface SignalGroup {
+  category: string;
+  contract_type: string;
+  direction: string;
+  confidence: number;
+  detail: string;
+  color: string;
+  digit?: number;
+  barrier?: number;
+}
+
+function useAllAnalysis(symbol: string, intervalMs: number) {
+  const [groups, setGroups] = useState<SignalGroup[]>([]);
+  useEffect(() => {
+    if (!symbol) return;
+    let dead = false;
+    const run = () => {
+      const sym = encodeURIComponent(symbol);
+      Promise.all([
+        fetch(`/api/over-under-signals?symbol=${sym}`).then((r) => r.json()).catch(() => ({})),
+        fetch(`/api/even-odd-analysis?symbol=${sym}`).then((r) => r.json()).catch(() => ({})),
+        fetch(`/api/match-differ-signals?symbol=${sym}`).then((r) => r.json()).catch(() => ({})),
+        fetch(`/api/tick-contracts?symbol=${sym}`).then((r) => r.json()).catch(() => ({})),
+      ]).then(([ou, eo, md, tc]) => {
+        if (dead) return;
+        const out: SignalGroup[] = [];
+        // Over/Under
+        type OUSig = { contract_type?: string; direction: string; confidence: number; barrier?: number; reason?: string };
+        ((ou.signals as OUSig[] | undefined) ?? []).slice(0, 2).forEach((s) => {
+          out.push({ category: "Over/Under", contract_type: s.contract_type ?? (s.direction === "OVER" ? "DIGITOVER" : "DIGITUNDER"),
+            direction: s.direction, confidence: s.confidence, barrier: s.barrier,
+            detail: s.reason ?? `${s.direction} ${s.barrier ?? ""}`, color: s.direction === "OVER" ? "#3b82f6" : "#a855f7" });
+        });
+        // Even/Odd
+        type EORec = { recommendation?: string; even_pct?: number; odd_pct?: number; confidence?: number };
+        const eoR = eo as EORec;
+        if (eoR.recommendation) {
+          const isEven = eoR.recommendation === "EVEN";
+          out.push({ category: "Even/Odd", contract_type: isEven ? "DIGITEVEN" : "DIGITODD",
+            direction: eoR.recommendation, confidence: isEven ? (eoR.even_pct ?? 0) : (eoR.odd_pct ?? 0),
+            detail: `${isEven ? "Even" : "Odd"} ${((isEven ? eoR.even_pct : eoR.odd_pct) ?? 0).toFixed(1)}%`,
+            color: isEven ? "#22c55e" : "#fb8c00" });
+        }
+        // Match/Differ
+        type MDSig = { contract_type?: string; digit?: number; confidence?: number; direction?: string; reason?: string };
+        ((md.signals as MDSig[] | undefined) ?? []).slice(0, 2).forEach((s) => {
+          out.push({ category: "Match/Differ", contract_type: s.contract_type ?? "DIGITMATCH",
+            direction: s.direction ?? "", confidence: s.confidence ?? 0, digit: s.digit,
+            detail: s.reason ?? `Digit ${s.digit}`, color: s.contract_type === "DIGITMATCH" ? "#facc15" : "#ef4444" });
+        });
+        // Rise/Fall
+        type TCSig = { contract_type?: string; direction?: string; signal?: string; confidence?: number; reason?: string };
+        ((tc.signals as TCSig[] | undefined) ?? []).slice(0, 2).forEach((s) => {
+          const dir = s.direction ?? s.signal ?? "";
+          out.push({ category: "Rise/Fall", contract_type: s.contract_type ?? (dir === "RISE" ? "CALL" : "PUT"),
+            direction: dir, confidence: s.confidence ?? 0,
+            detail: s.reason ?? dir, color: dir === "RISE" ? "#00c853" : "#ff1744" });
+        });
+        setGroups(out.sort((a, b) => b.confidence - a.confidence));
+      });
+    };
+    run();
+    const t = setInterval(run, intervalMs);
+    return () => { dead = true; clearInterval(t); };
+  }, [symbol, intervalMs]);
+  return groups;
+}
+
+// ─── Digit circles (Deriv.com style SVG, like DerivTraderPage) ───────────────
+function DigitCirclesRow({ digitFreq, tickCount, currentDigit }: {
+  digitFreq: number[]; tickCount: number; currentDigit: number;
+}) {
+  const total = useMemo(() => digitFreq.reduce((s, v) => s + v, 0) || 1, [digitFreq]);
+  const sorted = useMemo(
+    () => [...Array.from({ length: 10 }, (_, d) => ({ d, c: digitFreq[d] ?? 0 }))].sort((a, b) => b.c - a.c),
+    [digitFreq],
+  );
+  const role = (d: number) => { const i = sorted.findIndex((x) => x.d === d); return i === 0 ? "most" : i === 9 ? "least" : "mid"; };
+
+  return (
+    <div className="flex items-end justify-around w-full gap-1" style={{ minHeight: 120 }}>
+      {Array.from({ length: 10 }, (_, d) => {
+        const count = digitFreq[d] ?? 0;
+        const pct = (count / total) * 100;
+        const r = role(d);
+        const isCurrent = d === currentDigit;
+        const isMost = r === "most";
+        const isLeast = r === "least";
+        const SIZE = 52, CX = SIZE / 2, CY = SIZE / 2, R = 20, SW = 6;
+        const circ = 2 * Math.PI * R;
+        const filled = (pct / 100) * circ;
+        const endAngle = -Math.PI / 2 + (pct / 100) * 2 * Math.PI;
+        const tipX = CX + R * Math.cos(endAngle);
+        const tipY = CY + R * Math.sin(endAngle);
+        const arcColor = isMost ? "#22c55e" : isLeast ? "#ef4444" : "rgba(255,255,255,0.15)";
+        return (
+          <div key={d} className="flex flex-col items-center gap-0.5">
+            <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+              <circle cx={CX} cy={CY} r={R} fill="rgba(5,15,28,0.9)" stroke="rgba(255,255,255,0.06)" strokeWidth={SW}/>
+              <circle cx={CX} cy={CY} r={R} fill="none" stroke={arcColor}
+                strokeWidth={SW} strokeLinecap="round"
+                strokeDasharray={`${filled} ${circ - filled}`}
+                transform={`rotate(-90 ${CX} ${CY})`}
+                style={{ transition: "stroke-dasharray 0.5s ease" }}/>
+              <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"
+                fill={isCurrent ? "#fff" : "rgba(255,255,255,0.8)"}
+                fontFamily="Orbitron,monospace" fontWeight={isCurrent ? "900" : "700"}
+                fontSize={isCurrent ? 14 : 12}>
+                {d}
+              </text>
+              {isCurrent && (
+                <circle cx={tipX} cy={tipY} r={4} fill="#ff1e9e"
+                  style={{ filter: "drop-shadow(0 0 5px #ff1e9e)", transition: "cx 0.5s ease,cy 0.5s ease" }}/>
+              )}
+              {isMost && !isCurrent && <circle cx={tipX} cy={tipY} r={3} fill="#22c55e" opacity={0.85}/>}
+              {isLeast && !isCurrent && <circle cx={tipX} cy={tipY} r={3} fill="#ef4444" opacity={0.85}/>}
+            </svg>
+            <div className="font-orbitron text-center font-bold"
+              style={{ fontSize: 9, color: isMost ? "#22c55e" : isLeast ? "#ef4444" : isCurrent ? "#ff1e9e" : "rgba(255,255,255,0.4)" }}>
+              {pct.toFixed(1)}%
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // ─── AI Signal fetcher with configurable interval ────────────────────────────
@@ -147,8 +309,9 @@ export default function AiTradingPage() {
   const [killActive, setKillActive] = useState(false);
 
   const lastAutoKeyRef = useRef("");
-  const currentDigit = useLiveTick(symbol);
-  const allSignals   = useAiSignal(symbol, logicCfg.refreshMs);
+  const { digit: currentDigit, price: livePrice, digitFreq, tickCount: digitTickCount } = useLiveDigitData(symbol);
+  const allSignals    = useAiSignal(symbol, logicCfg.refreshMs);
+  const analysisGroups = useAllAnalysis(symbol, logicCfg.refreshMs);
 
   // ── Apply logic filters to signals ────────────────────────────────────────
   const filteredSignals = allSignals.filter((s) => {
@@ -311,6 +474,82 @@ export default function AiTradingPage() {
           <button onClick={() => { setSessionPL(0); setLossStreak(0); setTradesExecuted(0); }}
             className="ml-auto px-2 py-1 rounded text-xs font-rajdhani font-bold"
             style={{ background: "rgba(255,255,255,0.1)", color: "#fff" }}>Reset</button>
+        </div>
+      )}
+
+      {/* ── D-Circles — 1000-tick digit distribution ──────────────────── */}
+      <div className="cyber-card p-4" style={{ border: "1px solid rgba(0,229,255,0.2)" }}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Activity size={14} className="text-primary" />
+            <span className="font-rajdhani font-bold text-xs tracking-widest uppercase text-muted-foreground">
+              D-Circles · {symbol}
+            </span>
+            <span className="font-rajdhani text-[10px] text-muted-foreground">
+              ({digitTickCount} ticks · up to 1000)
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            {livePrice > 0 && (
+              <span className="font-orbitron text-sm font-bold text-foreground">
+                {livePrice > 100 ? livePrice.toFixed(2) : livePrice.toFixed(4)}
+              </span>
+            )}
+            <div className="w-9 h-9 rounded-full flex items-center justify-center font-orbitron text-lg font-black text-white flex-shrink-0"
+              style={{ background: DIGIT_COLORS[currentDigit], boxShadow: `0 0 16px ${DIGIT_COLORS[currentDigit]}80` }}>
+              {currentDigit}
+            </div>
+          </div>
+        </div>
+        <DigitCirclesRow digitFreq={digitFreq} tickCount={digitTickCount} currentDigit={currentDigit} />
+        <div className="flex items-center justify-center gap-4 mt-2 text-[9px] font-rajdhani text-muted-foreground">
+          <div className="flex items-center gap-1.5"><div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e" }} /> Highest</div>
+          <div className="flex items-center gap-1.5"><div style={{ width: 8, height: 8, borderRadius: "50%", background: "#ef4444" }} /> Lowest</div>
+          <div className="flex items-center gap-1.5"><svg width={8} height={6} viewBox="0 0 8 6"><polygon points="4,0 8,6 0,6" fill="#ff1e9e"/></svg> Current</div>
+        </div>
+      </div>
+
+      {/* ── Combined Analysis — all signal categories ─────────────────── */}
+      {analysisGroups.length > 0 && (
+        <div className="cyber-card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Zap size={14} className="text-primary" />
+            <span className="font-rajdhani font-bold text-xs tracking-widest uppercase text-muted-foreground">
+              Combined Analysis
+            </span>
+            <span className="font-rajdhani text-[10px] text-muted-foreground">All page logic · {analysisGroups.length} signals</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {analysisGroups.map((g, i) => {
+              const confColor = g.confidence >= 80 ? "#22c55e" : g.confidence >= 65 ? "#facc15" : "#ef4444";
+              return (
+                <div key={i} className="rounded-lg p-2.5 flex flex-col gap-1"
+                  style={{ background: `${g.color}10`, border: `1px solid ${g.color}35` }}>
+                  <div className="font-rajdhani text-[9px] tracking-widest uppercase" style={{ color: g.color }}>
+                    {g.category}
+                  </div>
+                  <div className="font-orbitron text-xs font-bold" style={{ color: g.color }}>
+                    {CONTRACT_LABELS[g.contract_type] ?? g.contract_type}
+                    {g.digit !== undefined && (
+                      <span className="ml-1 font-orbitron text-sm" style={{ color: DIGIT_COLORS[g.digit] }}>{g.digit}</span>
+                    )}
+                    {g.barrier !== undefined && (
+                      <span className="ml-1 text-muted-foreground">/{g.barrier}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+                      <div className="h-full rounded-full" style={{ width: `${g.confidence}%`, background: confColor, transition: "width 0.5s ease" }} />
+                    </div>
+                    <span className="font-orbitron text-[9px] font-bold flex-shrink-0" style={{ color: confColor }}>
+                      {g.confidence.toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="font-rajdhani text-[9px] text-muted-foreground truncate">{g.detail}</div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

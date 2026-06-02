@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useSymbol } from "@/context/SymbolContext";
+import DCircle from "@/components/DCircle";
 import {
   LineChart, RefreshCw, Wifi, WifiOff, Play, Square, Bot,
   AlertCircle, TrendingUp, TrendingDown, Settings2, X, ChevronDown, User,
@@ -271,6 +272,61 @@ function FloatingDigitCircles({ digitFreq, tickCount, currentDigit }: {
   );
 }
 
+/* ── Live Price Chart (canvas) — Deriv.com style ─────────────────────────── */
+function PriceChart({ prices, currentDigit }: { prices: number[]; currentDigit: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || prices.length < 2) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.offsetWidth || 400;
+    const H = canvas.offsetHeight || 140;
+    canvas.width = W * dpr; canvas.height = H * dpr; ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+    const pad = { top: 12, bottom: 18, left: 54, right: 12 };
+    const cW = W - pad.left - pad.right;
+    const cH = H - pad.top - pad.bottom;
+    const mn = Math.min(...prices); const mx = Math.max(...prices);
+    const range = mx - mn || mn * 0.001 || 1;
+    const toX = (i: number) => pad.left + (i / (prices.length - 1)) * cW;
+    const toY = (v: number) => pad.top + (1 - (v - mn) / range) * cH;
+    // Grid lines
+    for (let i = 0; i <= 3; i++) {
+      const y = pad.top + (i / 3) * cH;
+      ctx.strokeStyle = "rgba(255,255,255,0.05)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+      const val = mx - (i / 3) * range;
+      ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.font = "8px 'Space Grotesk',sans-serif";
+      ctx.textAlign = "right"; ctx.fillText(val > 100 ? val.toFixed(2) : val.toFixed(4), pad.left - 3, y + 3);
+    }
+    // Area fill
+    const grad = ctx.createLinearGradient(0, pad.top, 0, H - pad.bottom);
+    grad.addColorStop(0, "rgba(0,229,255,0.18)"); grad.addColorStop(1, "rgba(0,229,255,0)");
+    ctx.beginPath();
+    ctx.moveTo(toX(0), H - pad.bottom);
+    prices.forEach((v, i) => ctx.lineTo(toX(i), toY(v)));
+    ctx.lineTo(toX(prices.length - 1), H - pad.bottom); ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+    // Price line
+    ctx.beginPath(); ctx.strokeStyle = "#00e5ff"; ctx.lineWidth = 1.5; ctx.lineJoin = "round";
+    prices.forEach((v, i) => { if (i === 0) ctx.moveTo(toX(0), toY(v)); else ctx.lineTo(toX(i), toY(v)); });
+    ctx.stroke();
+    // Current dot
+    const lx = toX(prices.length - 1); const ly = toY(prices[prices.length - 1]);
+    const DIGIT_COLORS_LOCAL: Record<number,string> = {0:"#00897b",1:"#1e88e5",2:"#8e24aa",3:"#43a047",4:"#fb8c00",5:"#00e5ff",6:"#c6e500",7:"#e53935",8:"#e91e8c",9:"#fdd835"};
+    const dotColor = DIGIT_COLORS_LOCAL[currentDigit] ?? "#00e5ff";
+    ctx.beginPath(); ctx.arc(lx, ly, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = dotColor; ctx.shadowColor = dotColor; ctx.shadowBlur = 10; ctx.fill(); ctx.shadowBlur = 0;
+    // Horizontal dashed line at current price
+    ctx.setLineDash([3, 4]); ctx.strokeStyle = `${dotColor}60`; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.left, ly); ctx.lineTo(lx, ly); ctx.stroke();
+    ctx.setLineDash([]);
+  }, [prices, currentDigit]);
+  return <canvas ref={canvasRef} style={{ width: "100%", height: 140, display: "block" }} />;
+}
+
 /* ── Small symbol card ───────────────────────────────────────────────────── */
 function SymbolCard({ stat, isSelected, onClick }: { stat:SymbolStat;isSelected:boolean;onClick:()=>void }) {
   const total = stat.tickCount||1;
@@ -345,6 +401,32 @@ export default function DerivTraderPage() {
 
   const selectedStat = statsMap.get(symbol) ?? groupStats[0];
   const derivWS = useDerivWS(null);
+
+  // ── Price history for chart (last 200 prices of selected symbol) ──────────
+  const [priceHistory, setPriceHistory] = useState<number[]>([]);
+  useEffect(() => {
+    setPriceHistory([]); // reset on symbol change
+  }, [symbol]);
+  useEffect(() => {
+    if (!selectedStat?.price) return;
+    setPriceHistory((prev) => {
+      const next = [...prev, selectedStat.price];
+      return next.length > 200 ? next.slice(next.length - 200) : next;
+    });
+  }, [selectedStat?.price]);
+
+  // ── Build DCircle digit data from selected symbol ─────────────────────────
+  const dCircleDigits = useMemo(() => {
+    if (!selectedStat) return [];
+    const total = selectedStat.tickCount || 1;
+    const sorted = [...Array.from({ length: 10 }, (_, d) => ({ d, c: selectedStat.digitFreq[d] ?? 0 }))]
+      .sort((a, b) => b.c - a.c);
+    return Array.from({ length: 10 }, (_, d) => ({
+      digit: d,
+      percentage: ((selectedStat.digitFreq[d] ?? 0) / total) * 100,
+      rank: sorted.findIndex((x) => x.d === d) + 1,
+    }));
+  }, [selectedStat]);
 
   // Comprehensive signal fetch — all types from all endpoints, ≥87% confidence
   const MIN_CONF = 87;
@@ -885,21 +967,55 @@ export default function DerivTraderPage() {
         </div>
       </div>
 
-      {/* Market summary bar */}
-      {groupStats.some((s)=>s.tickCount>0) && (
-        <div className="cyber-card p-3 mt-4">
-          <div className="font-rajdhani text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-2">Market Summary</div>
-          <div className="flex flex-wrap gap-2">
-            {groupStats.filter((s)=>s.tickCount>0).map((s)=>(
-              <button key={s.key} onClick={()=>setSymbol(s.key)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-rajdhani text-xs font-semibold transition-all"
-                style={s.key===symbol
-                  ? { background:"rgba(0,229,255,0.15)",border:"1px solid rgba(0,229,255,0.4)",color:"#00e5ff" }
-                  : { background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.6)" }}>
-                <div className="w-5 h-5 rounded-full flex items-center justify-center font-orbitron text-[9px] font-black text-white" style={{ background:DIGIT_COLORS[s.digit] }}>{s.digit}</div>
-                {s.label.split(" ").slice(-1)[0]}
-              </button>
-            ))}
+      {/* ── Live Price Chart + D-Circle ──────────────────────────────────── */}
+      {selectedStat && selectedStat.tickCount > 0 && (
+        <div className="cyber-card p-4 mt-4" style={{ border: "1px solid rgba(0,229,255,0.18)" }}>
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="font-rajdhani text-[10px] font-bold tracking-widest uppercase text-muted-foreground">
+                Live Price Chart · {selectedStat.label}
+              </div>
+              <div className="font-orbitron text-lg font-bold text-foreground">
+                {selectedStat.price > 100 ? selectedStat.price.toFixed(2) : selectedStat.price.toFixed(4)}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <div className="font-rajdhani text-[9px] text-muted-foreground">{selectedStat.tickCount} ticks</div>
+                <div className="font-rajdhani text-[9px] text-muted-foreground">{priceHistory.length} pts</div>
+              </div>
+              <div className="w-12 h-12 rounded-full flex items-center justify-center font-orbitron text-xl font-black text-white"
+                style={{ background: DIGIT_COLORS[selectedStat.digit], boxShadow: `0 0 16px ${DIGIT_COLORS[selectedStat.digit]}80` }}>
+                {selectedStat.digit}
+              </div>
+            </div>
+          </div>
+
+          {/* Price chart */}
+          {priceHistory.length >= 2
+            ? <PriceChart prices={priceHistory} currentDigit={selectedStat.digit} />
+            : (
+              <div className="flex items-center justify-center h-36 text-muted-foreground gap-2">
+                <RefreshCw size={14} className="animate-spin" />
+                <span className="font-rajdhani text-xs">Building price history…</span>
+              </div>
+            )}
+
+          {/* D-Circle */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+            <div className="font-rajdhani text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-3">
+              D-Circle · Digit Distribution · {selectedStat.tickCount} ticks
+            </div>
+            <div className="flex justify-center">
+              <DCircle
+                digits={dCircleDigits}
+                currentDigit={selectedStat.digit}
+                currentPrice={selectedStat.price}
+                size={240}
+                label={selectedStat.label}
+                tickCount={selectedStat.tickCount}
+              />
+            </div>
           </div>
         </div>
       )}
