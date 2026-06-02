@@ -41,6 +41,22 @@ export interface TradeSpec {
 
 export const MARKUP_PCT = 4;
 
+/** Fire-and-forget beacon to record commission analytics on the backend */
+function beaconCommission(spec: TradeSpec, buyPrice: number, payout: number): void {
+  void fetch("/api/trade-event", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbol:        spec.symbol,
+      contract_type: spec.contract_type,
+      stake:         spec.stake,
+      buy_price:     buyPrice,
+      payout,
+      markup_pct:    MARKUP_PCT,
+    }),
+  }).catch(() => {});
+}
+
 /** Fire N parallel proposals then N parallel buys — returns all settled results */
 export async function executeBulk(
   specs: TradeSpec[],
@@ -105,7 +121,12 @@ export async function executeBulk(
         return Promise.reject(result.reason);
       }
       const prop = result.value.proposal as Record<string, unknown>;
-      return request({ buy: prop.id as string, price: specs[i].stake });
+      return request({ buy: prop.id as string, price: specs[i].stake }).then((buyResp) => {
+        // Record commission analytics (fire-and-forget)
+        const buy = buyResp.buy as Record<string, unknown>;
+        beaconCommission(specs[i], (buy.buy_price as number) ?? specs[i].stake, (buy.payout as number) ?? 0);
+        return buyResp;
+      });
     })
   );
 
@@ -133,7 +154,6 @@ export async function executeBulk(
         if (!poc || (poc.contract_id as number) !== contract_id) return;
 
         if ((poc.is_sold as number) === 1 || poc.status === "sold") {
-          // Contract settled — determine accurate win/loss
           const profit  = parseFloat(String(poc.profit ?? 0));
           const won     = profit > 0;
           const exit_spot = poc.exit_tick as number | string | undefined;
