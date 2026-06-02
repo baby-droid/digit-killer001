@@ -21,6 +21,7 @@ import DerivTraderPage from "@/pages/DerivTraderPage";
 import RiskCalculatorPage from "@/pages/RiskCalculatorPage";
 import SettingsPage from "@/pages/SettingsPage";
 import ReportsPage from "@/pages/ReportsPage";
+import TeachingPage from "@/pages/TeachingPage";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -67,6 +68,7 @@ function Router() {
       <Route path="/deriv-trader"><Protected><DerivTraderPage /></Protected></Route>
       <Route path="/risk-calculator"><Protected><RiskCalculatorPage /></Protected></Route>
       <Route path="/reports"><Protected><ReportsPage /></Protected></Route>
+      <Route path="/teaching"><Protected><TeachingPage /></Protected></Route>
       <Route path="/settings"><Protected><SettingsPage /></Protected></Route>
       <Route component={NotFound} />
     </Switch>

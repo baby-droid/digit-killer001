@@ -16,6 +16,18 @@ import { getSystemStats, clearAllBuffers } from "../lib/tickStream";
 
 const router: IRouter = Router();
 
+// ── In-memory session store: user_id → token ──────────────────────────────
+// Tracks ONE active session per user. Admin logins are exempt.
+const activeSessions = new Map<string, string>();
+
+// ── Helper to evict expired sessions periodically ─────────────────────────
+setInterval(() => {
+  for (const [uid, tok] of activeSessions) {
+    const s = validateToken(tok);
+    if (!s) activeSessions.delete(uid);
+  }
+}, 60 * 1000);
+
 // Admin login
 router.post("/admin/login", async (req, res): Promise<void> => {
   const { password } = req.body as { password?: string };
@@ -55,12 +67,57 @@ router.post("/user/login", async (req, res): Promise<void> => {
       return;
     }
 
+    // Block duplicate logins — one active session per user_id
+    const existingToken = activeSessions.get(user_id);
+    if (existingToken) {
+      const existing = validateToken(existingToken);
+      if (existing) {
+        res.status(409).json({ error: "Account already logged in from another device. Log out there first, or wait 24 hours for the session to expire." });
+        return;
+      }
+      // Token expired — clean it up
+      activeSessions.delete(user_id);
+    }
+
     const token = createUserToken(user.id);
+    activeSessions.set(user_id, token);
     res.json({ token, user_id: user.user_id, username: user.username });
   } catch (err) {
     req.log.error({ err }, "user login error");
     res.status(500).json({ error: "Login failed" });
   }
+});
+
+// User logout — clears the session so they can log in from another device
+router.post("/user/logout", (req, res): void => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.replace("Bearer ", "");
+  if (token) {
+    const session = validateToken(token);
+    if (session) {
+      // Find the user_id associated with this token and remove
+      for (const [uid, tok] of activeSessions) {
+        if (tok === token) { activeSessions.delete(uid); break; }
+      }
+    }
+  }
+  res.json({ ok: true });
+});
+
+// Admin can force-logout a specific user_id (kicks them out immediately)
+router.delete("/admin/sessions/:user_id", requireAdmin, (req, res): void => {
+  const uid = Array.isArray(req.params.user_id) ? req.params.user_id[0] : req.params.user_id;
+  activeSessions.delete(uid);
+  res.json({ ok: true, message: `Session for ${uid} cleared` });
+});
+
+// Admin — view all active sessions
+router.get("/admin/sessions", requireAdmin, (_req, res): void => {
+  const list = Array.from(activeSessions.entries()).map(([uid, tok]) => {
+    const s = validateToken(tok);
+    return { user_id: uid, valid: !!s };
+  });
+  res.json({ active_sessions: list, count: list.length });
 });
 
 // Middleware to check admin token

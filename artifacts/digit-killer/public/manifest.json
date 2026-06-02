@@ -1,0 +1,31 @@
+{
+  "name": "Digit Killer",
+  "short_name": "DigitKill",
+  "description": "AI-powered Deriv trading analysis platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050a0f",
+  "theme_color": "#00e5ff",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Deriv Trader",
+      "url": "/",
+      "description": "Open Deriv Trader"
+    },
+    {
+      "name": "AI Trading",
+      "url": "/?page=ai-trading",
+      "description": "Open AI Trading"
+    }
+  ]
+}

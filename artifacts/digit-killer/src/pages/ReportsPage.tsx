@@ -339,10 +339,13 @@ function exportPDF(data: AdvancedData, strategies: Strategy[]) {
 </html>`;
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
-  const win = window.open(url, "_blank");
-  if (win) {
-    win.addEventListener("load", () => { win.print(); });
-  }
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `digit-killer-ml-report-${data.symbol}-${Date.now()}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 function exportWord(data: AdvancedData, strategies: Strategy[]) {

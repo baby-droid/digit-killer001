@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Eye, TrendingUp, TrendingDown, Divide, Shuffle,
   BarChart2, Zap, Settings, ChevronLeft, ChevronRight,
   Radio, LogIn, FileBarChart, Menu, X, ChevronDown, LogOut,
-  ArrowUp, ArrowDown, ArrowUpDown, Bot, LineChart, Calculator,
+  ArrowUp, ArrowDown, ArrowUpDown, Bot, LineChart, Calculator, GraduationCap,
 } from "lucide-react";
 
 const MARKET_GROUPS = [
@@ -87,6 +87,7 @@ const NAV_ITEMS = [
   { path: "/deriv-trader",    label: "Deriv Trader",    icon: LineChart },
   { path: "/risk-calculator", label: "Risk Calculator", icon: Calculator },
   { path: "/reports",         label: "ML Reports",      icon: FileBarChart },
+  { path: "/teaching",        label: "Academy",         icon: GraduationCap },
 ];
 
 // ─── Symbol dropdown uses FIXED positioning to escape any stacking context ──
@@ -221,6 +222,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const handleLogout = () => {
+    const token = localStorage.getItem("user_token");
+    if (token) {
+      fetch("/api/user/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
     localStorage.removeItem("user_token");
     localStorage.removeItem("admin_token");
     window.location.href = "/login";
