@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useTheme, THEMES, FONTS, SIZES } from "@/context/ThemeContext";
 import {
   useAdminLogin,
   useGetUsers,
@@ -722,6 +723,104 @@ function AdminPanel() {
   );
 }
 
+// ─── Appearance Panel ──────────────────────────────────────────────────────────
+function AppearancePanel() {
+  const { themeId, fontId, sizeId, setTheme, setFont, setSize } = useTheme();
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div className="cyber-card overflow-hidden">
+      <button onClick={() => setOpen(p => !p)} className="w-full flex items-center justify-between p-4">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md flex items-center justify-center" style={{ background: "rgba(0,229,255,0.12)" }}>
+            <span className="text-primary text-sm">🎨</span>
+          </div>
+          <div className="text-left">
+            <div className="font-orbitron text-sm font-bold text-primary tracking-wider">APPEARANCE</div>
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase">Themes · Fonts · Size — visible to all users</div>
+          </div>
+        </div>
+        <div className="text-muted-foreground">{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</div>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 space-y-5 border-t" style={{ borderColor: "rgba(0,229,255,0.1)" }}>
+          {/* Themes — 12 options */}
+          <div className="pt-4">
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-3">Theme ({THEMES.length} options)</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {THEMES.map((t) => (
+                <button key={t.id} onClick={() => setTheme(t.id)}
+                  className="relative flex items-center gap-2 p-2.5 rounded-xl text-left transition-all"
+                  style={themeId === t.id
+                    ? { background: `${t.preview}18`, border: `1.5px solid ${t.preview}60`, boxShadow: `0 0 12px ${t.preview}30` }
+                    : { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                  <div className="w-7 h-7 rounded-lg flex-shrink-0 flex items-center justify-center" style={{ background: `${t.preview}22`, border: `1.5px solid ${t.preview}50` }}>
+                    <div className="w-3 h-3 rounded-full" style={{ background: t.preview, boxShadow: `0 0 6px ${t.preview}` }} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-rajdhani text-xs font-bold truncate" style={{ color: themeId === t.id ? t.preview : "rgba(255,255,255,0.75)" }}>{t.name}</div>
+                    <div className="font-rajdhani text-[9px] text-muted-foreground truncate">{t.description}</div>
+                  </div>
+                  {themeId === t.id && (
+                    <div className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full" style={{ background: t.preview }} />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Fonts — 5 options */}
+          <div>
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-3">Font Style ({FONTS.length} options)</div>
+            <div className="flex flex-wrap gap-2">
+              {FONTS.map((f) => (
+                <button key={f.id} onClick={() => setFont(f.id)}
+                  className="px-3 py-2 rounded-xl transition-all"
+                  style={fontId === f.id
+                    ? { background: "rgba(0,229,255,0.15)", border: "1.5px solid rgba(0,229,255,0.5)", color: "#00e5ff" }
+                    : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.6)" }}>
+                  <div className="font-rajdhani text-xs font-bold">{f.name}</div>
+                  <div className="font-rajdhani text-[9px] text-muted-foreground mt-0.5">{f.bodyFamily.split(",")[0].replace(/'/g, "")}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Sizes — 5 options */}
+          <div>
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-3">Text Size ({SIZES.length} options)</div>
+            <div className="flex flex-wrap gap-2">
+              {SIZES.map((s) => (
+                <button key={s.id} onClick={() => setSize(s.id)}
+                  className="px-3 py-2 rounded-xl transition-all"
+                  style={sizeId === s.id
+                    ? { background: "rgba(0,229,255,0.15)", border: "1.5px solid rgba(0,229,255,0.5)", color: "#00e5ff" }
+                    : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.6)" }}>
+                  <div className="font-rajdhani text-xs font-bold">{s.name}</div>
+                  <div className="font-rajdhani text-[9px] text-muted-foreground">×{s.scale}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="rounded-xl p-3" style={{ background: "rgba(0,229,255,0.04)", border: "1px solid rgba(0,229,255,0.12)" }}>
+            <div className="font-rajdhani text-[9px] text-muted-foreground tracking-widest uppercase mb-2">Live Preview</div>
+            <div className="font-orbitron text-base font-bold text-primary">DIGIT KILLER</div>
+            <div className="font-rajdhani text-xs text-muted-foreground mt-0.5">Signal · Analyse · Trade</div>
+            <div className="font-rajdhani text-xs text-foreground mt-1">↑ Rise 94.2% · ↓ Fall 87.6% · Even 89.1%</div>
+          </div>
+
+          <div className="flex items-center gap-2 text-[10px] font-rajdhani text-muted-foreground">
+            <span>💾</span> Preferences saved automatically to this device — no account needed.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("admin_token"));
@@ -735,6 +834,7 @@ export default function SettingsPage() {
           System Health · Troubleshooting · Storage Policy · User Management
         </p>
       </div>
+      <AppearancePanel />
       {!token ? <LoginForm onSuccess={handleLogin} /> : <AdminPanel />}
     </div>
   );

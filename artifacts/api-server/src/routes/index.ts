@@ -5,6 +5,7 @@ import analysisRouter from "./analysis";
 import adminRouter from "./admin";
 import advancedRouter from "./advanced";
 import liveRouter from "./live";
+import academyRouter from "./academy";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(analysisRouter);
 router.use(adminRouter);
 router.use(advancedRouter);
 router.use(liveRouter);
+router.use(academyRouter);
 
 export default router;

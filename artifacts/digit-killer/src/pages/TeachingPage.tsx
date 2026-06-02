@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { GraduationCap, BookOpen, Target, Zap, CheckCircle, XCircle, ChevronRight, Download, Star, Trophy, Lock, Play, Search, X } from "lucide-react";
+import { useState, useMemo, useRef, useCallback } from "react";
+import { GraduationCap, BookOpen, Target, Zap, CheckCircle, XCircle, ChevronRight, Download, Star, Trophy, Lock, Play, Search, X, Plus, Camera, FileText, Globe, Loader2, ChevronDown, ChevronUp, UploadCloud, Trash2 } from "lucide-react";
 
 type Level = "beginner" | "intermediate" | "pro";
 
@@ -592,6 +592,290 @@ ${l.example?`<div class="ex"><strong>Example:</strong> ${l.example}</div>`:""}`)
   a.click();
 }
 
+// ─── Academy AI Panel types ────────────────────────────────────────────────────
+interface AnalysisResult { filename: string; type: string; analysis: string[]; recommendation: string; detected: string[]; score: number; }
+interface SearchResult   { title: string; snippet: string; url: string; type: string; }
+interface HistoryItem    { id: string; kind: "file" | "search"; label: string; result: AnalysisResult | { query: string; results: SearchResult[] }; ts: string; }
+
+function AcademyAIPanel() {
+  const [open, setOpen]           = useState(false);
+  const [aiTab, setAiTab]         = useState<"file" | "search" | "history">("file");
+  const [busy, setBusy]           = useState(false);
+  const [history, setHistory]     = useState<HistoryItem[]>([]);
+  const [searchQ, setSearchQ]     = useState("");
+  const [lastResult, setLastResult] = useState<HistoryItem | null>(null);
+  const fileRef    = useRef<HTMLInputElement>(null);
+  const cameraRef  = useRef<HTMLInputElement>(null);
+  const dropRef    = useRef<HTMLDivElement>(null);
+
+  const processFile = useCallback(async (file: File) => {
+    setBusy(true);
+    try {
+      let content = "";
+      let type = "text";
+      if (file.type.startsWith("image/")) {
+        type = "image";
+        content = await new Promise<string>((res) => {
+          const r = new FileReader();
+          r.onload = () => res(`[Image file: ${file.name} — ${(file.size / 1024).toFixed(1)} KB]\nType: ${file.type}\nImage uploaded for visual reference (no cloud storage used).`);
+          r.readAsDataURL(file);
+        });
+        content = `[Image: ${file.name}] Size: ${(file.size / 1024).toFixed(1)} KB. Type: ${file.type}.`;
+      } else {
+        content = await new Promise<string>((res, rej) => {
+          const r = new FileReader();
+          r.onload  = () => res(r.result as string);
+          r.onerror = rej;
+          r.readAsText(file);
+        });
+        type = file.name.endsWith(".csv") ? "csv" : file.name.endsWith(".json") ? "json" : "text";
+      }
+      const resp = await fetch("/api/academy/analyse", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: content.slice(0, 8000), type, filename: file.name }),
+      });
+      const data = await resp.json() as AnalysisResult;
+      const item: HistoryItem = { id: Date.now().toString(), kind: "file", label: file.name, result: data, ts: new Date().toLocaleTimeString() };
+      setHistory((h) => [item, ...h.slice(0, 19)]);
+      setLastResult(item);
+    } catch { /* silent */ } finally { setBusy(false); }
+  }, []);
+
+  const doSearch = useCallback(async () => {
+    if (!searchQ.trim()) return;
+    setBusy(true);
+    try {
+      const resp = await fetch(`/api/academy/search?q=${encodeURIComponent(searchQ)}`);
+      const data = await resp.json() as { query: string; results: SearchResult[] };
+      const item: HistoryItem = { id: Date.now().toString(), kind: "search", label: searchQ, result: data, ts: new Date().toLocaleTimeString() };
+      setHistory((h) => [item, ...h.slice(0, 19)]);
+      setLastResult(item);
+    } catch { /* silent */ } finally { setBusy(false); }
+  }, [searchQ]);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    const files = Array.from(e.dataTransfer.files);
+    if (files[0]) void processFile(files[0]);
+  }, [processFile]);
+
+  const isSearch = (x: HistoryItem): x is HistoryItem & { result: { query: string; results: SearchResult[] } } => x.kind === "search";
+  const isFile   = (x: HistoryItem): x is HistoryItem & { result: AnalysisResult } => x.kind === "file";
+
+  return (
+    <>
+      {/* Floating "+" button */}
+      <button
+        onClick={() => setOpen(true)}
+        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-95"
+        style={{ background: "linear-gradient(135deg,#00e5ff,#0288d1)", boxShadow: "0 0 24px rgba(0,229,255,0.5)" }}
+        title="Academy AI — analyse files, search, camera"
+      >
+        <Plus size={24} className="text-black font-black" />
+      </button>
+
+      {/* Panel overlay */}
+      {open && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <div className="relative rounded-t-2xl overflow-hidden flex flex-col" style={{ background: "#0a1628", border: "1px solid rgba(0,229,255,0.2)", maxHeight: "85vh" }}>
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-2 flex-shrink-0">
+              <div className="w-10 h-1 rounded-full" style={{ background: "rgba(0,229,255,0.3)" }} />
+            </div>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 pb-3 flex-shrink-0 border-b" style={{ borderColor: "rgba(0,229,255,0.12)" }}>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(0,229,255,0.12)" }}>
+                  <GraduationCap size={14} className="text-primary" />
+                </div>
+                <div>
+                  <div className="font-orbitron text-sm font-bold text-primary">ACADEMY AI</div>
+                  <div className="font-rajdhani text-[9px] text-muted-foreground tracking-widest">Analyse · Search · Camera — No cloud storage</div>
+                </div>
+              </div>
+              <button onClick={() => setOpen(false)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground" style={{ background: "rgba(255,255,255,0.05)" }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-1 px-4 pt-3 flex-shrink-0">
+              {(["file","search","history"] as const).map((t) => (
+                <button key={t} onClick={() => setAiTab(t)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-rajdhani text-xs font-bold tracking-wider uppercase transition-all"
+                  style={aiTab === t
+                    ? { background: "rgba(0,229,255,0.15)", border: "1px solid rgba(0,229,255,0.4)", color: "#00e5ff" }
+                    : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.45)" }}>
+                  {t === "file" ? <FileText size={11} /> : t === "search" ? <Globe size={11} /> : <ChevronDown size={11} />}
+                  {t === "history" ? `History (${history.length})` : t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+
+              {/* FILE TAB */}
+              {aiTab === "file" && (
+                <div className="space-y-3">
+                  {/* Drag & Drop Zone */}
+                  <div ref={dropRef} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}
+                    className="border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer"
+                    style={{ borderColor: "rgba(0,229,255,0.25)", background: "rgba(0,229,255,0.03)" }}
+                    onClick={() => fileRef.current?.click()}>
+                    <UploadCloud size={28} className="text-primary mx-auto mb-2 opacity-70" />
+                    <div className="font-rajdhani text-sm text-muted-foreground">Drag & drop any file here, or <span className="text-primary">browse</span></div>
+                    <div className="font-rajdhani text-[10px] text-muted-foreground mt-1 opacity-60">PDF · CSV · TXT · JSON · DOCX · Images · Any file — processed locally</div>
+                    <input ref={fileRef} type="file" className="hidden"
+                      accept="*/*"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) void processFile(f); e.target.value = ""; }}
+                    />
+                  </div>
+
+                  {/* Camera capture */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => cameraRef.current?.click()}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-rajdhani text-sm font-bold transition-all"
+                      style={{ background: "rgba(0,229,255,0.08)", border: "1px solid rgba(0,229,255,0.2)", color: "#00e5ff" }}>
+                      <Camera size={15} /> Take Photo / Camera
+                    </button>
+                    <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) void processFile(f); e.target.value = ""; }}
+                    />
+                  </div>
+
+                  {busy && (
+                    <div className="flex items-center gap-2 py-3 px-4 rounded-xl" style={{ background: "rgba(0,229,255,0.07)", border: "1px solid rgba(0,229,255,0.15)" }}>
+                      <Loader2 size={14} className="text-primary animate-spin" />
+                      <span className="font-rajdhani text-sm text-primary">Analysing file locally…</span>
+                    </div>
+                  )}
+
+                  {/* Last file result */}
+                  {lastResult && isFile(lastResult) && !busy && (
+                    <div className="rounded-xl p-4 space-y-3" style={{ background: "rgba(0,229,255,0.05)", border: "1px solid rgba(0,229,255,0.15)" }}>
+                      <div className="flex items-center gap-2">
+                        <FileText size={13} className="text-primary" />
+                        <span className="font-orbitron text-xs font-bold text-primary">{lastResult.result.filename}</span>
+                        <span className="ml-auto font-rajdhani text-[10px] text-muted-foreground">{lastResult.ts}</span>
+                      </div>
+                      <div className="space-y-1">
+                        {lastResult.result.analysis.map((line, i) => (
+                          <div key={i} className="font-rajdhani text-xs text-foreground/90">{line}</div>
+                        ))}
+                      </div>
+                      {lastResult.result.recommendation && (
+                        <div className="rounded-lg p-3" style={{ background: "rgba(0,229,255,0.08)", border: "1px solid rgba(0,229,255,0.15)" }}>
+                          <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1">Recommendation</div>
+                          <div className="font-rajdhani text-xs text-foreground">{lastResult.result.recommendation}</div>
+                        </div>
+                      )}
+                      {lastResult.result.score > 0 && (
+                        <div className="flex items-center gap-2">
+                          <div className="font-rajdhani text-[10px] text-muted-foreground">Trading Relevance</div>
+                          <div className="flex-1 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+                            <div className="h-1.5 rounded-full transition-all" style={{ width: `${lastResult.result.score}%`, background: `linear-gradient(90deg,#00e5ff,${lastResult.result.score > 60 ? "#00c853" : "#ffd600"})` }} />
+                          </div>
+                          <div className="font-orbitron text-xs font-bold" style={{ color: lastResult.result.score > 60 ? "#00c853" : "#ffd600" }}>{lastResult.result.score}%</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SEARCH TAB */}
+              {aiTab === "search" && (
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Globe size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      <input
+                        type="text" value={searchQ} onChange={(e) => setSearchQ(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && void doSearch()}
+                        placeholder="Search anything — trading, markets, strategies…"
+                        className="w-full pl-9 pr-4 py-2.5 rounded-xl font-rajdhani text-sm bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                      />
+                    </div>
+                    <button onClick={() => void doSearch()} disabled={busy || !searchQ.trim()}
+                      className="px-4 py-2.5 rounded-xl font-rajdhani text-sm font-bold transition-all disabled:opacity-40"
+                      style={{ background: "rgba(0,229,255,0.15)", border: "1px solid rgba(0,229,255,0.35)", color: "#00e5ff" }}>
+                      {busy ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {["Deriv volatility index","martingale strategy","digit trading","over under signals","binary options"].map((s) => (
+                      <button key={s} onClick={() => { setSearchQ(s); setTimeout(() => void doSearch(), 50); }}
+                        className="px-2.5 py-1 rounded-full font-rajdhani text-[10px] font-bold transition-all"
+                        style={{ background: "rgba(0,229,255,0.06)", border: "1px solid rgba(0,229,255,0.18)", color: "rgba(0,229,255,0.7)" }}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+
+                  {lastResult && isSearch(lastResult) && !busy && (
+                    <div className="space-y-2">
+                      <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase">
+                        Results for "{lastResult.result.query}"
+                      </div>
+                      {lastResult.result.results.length === 0 && (
+                        <div className="font-rajdhani text-sm text-muted-foreground text-center py-6">No results found. Try a different search.</div>
+                      )}
+                      {lastResult.result.results.map((r, i) => (
+                        <div key={i} className="rounded-xl p-3 space-y-1" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                          {r.title && <div className="font-rajdhani text-xs font-bold text-primary">{r.title}</div>}
+                          <div className="font-rajdhani text-xs text-foreground/85 leading-relaxed">{r.snippet}</div>
+                          {r.url && (
+                            <a href={r.url} target="_blank" rel="noopener noreferrer" className="font-rajdhani text-[10px] text-muted-foreground hover:text-primary transition-colors truncate block">
+                              🔗 {r.url}
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* HISTORY TAB */}
+              {aiTab === "history" && (
+                <div className="space-y-2">
+                  {history.length === 0 && (
+                    <div className="text-center py-10 font-rajdhani text-sm text-muted-foreground">
+                      No history yet. Upload a file or search something.
+                    </div>
+                  )}
+                  {history.map((item) => (
+                    <button key={item.id} onClick={() => { setLastResult(item); setAiTab(item.kind === "search" ? "search" : "file"); }}
+                      className="w-full text-left rounded-xl p-3 transition-all"
+                      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                      <div className="flex items-center gap-2">
+                        {item.kind === "file" ? <FileText size={12} className="text-primary flex-shrink-0" /> : <Globe size={12} className="text-primary flex-shrink-0" />}
+                        <span className="font-rajdhani text-xs text-foreground truncate flex-1">{item.label}</span>
+                        <span className="font-rajdhani text-[10px] text-muted-foreground flex-shrink-0">{item.ts}</span>
+                      </div>
+                    </button>
+                  ))}
+                  {history.length > 0 && (
+                    <button onClick={() => { setHistory([]); setLastResult(null); }}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl font-rajdhani text-xs text-muted-foreground transition-all hover:text-red-400"
+                      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                      <Trash2 size={11} /> Clear History
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function TeachingPage() {
   const [level, setLevel] = useState<Level>("beginner");
   const [openLesson, setOpenLesson] = useState<string | null>(null);
@@ -762,6 +1046,9 @@ export default function TeachingPage() {
           {filteredChallenges.map((c, i) => <ChallengeCard key={i} challenge={c} />)}
         </div>
       )}
+
+      {/* Academy AI floating panel */}
+      <AcademyAIPanel />
     </div>
   );
 }

@@ -377,6 +377,11 @@ export default function DerivTraderPage() {
     return ()=>clearInterval(t);
   },[symbol]);
 
+  const currentStake = martingaleOn ? Math.min(stake*Math.pow(martMult,lossStreak),stake*32) : stake;
+  const tpHit = tpEnabled && sessionPL >= tpAmount;
+  const slHit = slEnabled && sessionPL <= -slAmount;
+  const tradingBlocked = tpHit || slHit;
+
   // Auto-trade: instant trigger — fires immediately when a new ≥87% signal arrives
   const lastAutoSigRef = useRef("");
   useEffect(()=>{
@@ -391,11 +396,6 @@ export default function DerivTraderPage() {
     setContractType(aiSignal.contract_type);
     void executeTrade();
   },[autoTrade,derivWS.status,trading,aiSignal,tradingBlocked]);
-
-  const currentStake = martingaleOn ? Math.min(stake*Math.pow(martMult,lossStreak),stake*32) : stake;
-  const tpHit = tpEnabled && sessionPL >= tpAmount;
-  const slHit = slEnabled && sessionPL <= -slAmount;
-  const tradingBlocked = tpHit || slHit;
 
   const connectDeriv=()=>{
     const t=tokenInput.trim();

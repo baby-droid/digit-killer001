@@ -1,31 +1,29 @@
 {
-  "name": "Digit Killer",
-  "short_name": "DigitKill",
-  "description": "AI-powered Deriv trading analysis platform",
+  "name": "Digit Killer — AI Trading",
+  "short_name": "Digit Killer",
+  "description": "Real-time AI-powered Deriv trading analysis by Ahmed Syntrader. Digit analysis, D-Circles, Over/Under, Even/Odd, Match/Differ, Rise/Fall signals.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#050a0f",
   "theme_color": "#00e5ff",
-  "orientation": "portrait-primary",
+  "orientation": "any",
+  "id": "digit-killer-app",
+  "lang": "en",
+  "categories": ["finance", "utilities", "productivity"],
   "icons": [
-    {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
   ],
-  "categories": ["finance", "utilities"],
+  "screenshots": [],
   "shortcuts": [
-    {
-      "name": "Deriv Trader",
-      "url": "/",
-      "description": "Open Deriv Trader"
-    },
-    {
-      "name": "AI Trading",
-      "url": "/?page=ai-trading",
-      "description": "Open AI Trading"
-    }
-  ]
+    { "name": "Dashboard",    "short_name": "Dash",   "url": "/dashboard",    "description": "Live digit dashboard" },
+    { "name": "Deriv Trader", "short_name": "Trader", "url": "/deriv-trader", "description": "Auto trade with Deriv" },
+    { "name": "AI Signals",   "short_name": "AI",     "url": "/ai-signals",   "description": "AI trading signals" },
+    { "name": "Over/Under",   "short_name": "O/U",    "url": "/over-under",   "description": "Over/Under signals" },
+    { "name": "Academy",      "short_name": "Learn",  "url": "/teaching",     "description": "Trading academy + AI" }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
 }

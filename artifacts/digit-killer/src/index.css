@@ -187,8 +187,16 @@ body {
 .badge-even { background: rgba(198,255,0,0.1); color: #c6ff00; border: 1px solid rgba(198,255,0,0.3); }
 .badge-odd { background: rgba(255,145,0,0.13); color: #ff9100; border: 1px solid rgba(255,145,0,0.3); }
 
-.font-orbitron { font-family: 'Orbitron', monospace; }
-.font-rajdhani { font-family: 'Rajdhani', sans-serif; }
+/* Font classes — use CSS vars so ThemeContext can override them */
+:root {
+  --font-brand: 'Orbitron', monospace;
+  --font-label: 'Rajdhani', sans-serif;
+  --font-body:  'Space Grotesk', sans-serif;
+  --ui-scale: 1;
+}
+.font-orbitron { font-family: var(--font-brand) !important; }
+.font-rajdhani { font-family: var(--font-label) !important; }
+body { font-family: var(--font-body); font-size: calc(1rem * var(--ui-scale)); }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
