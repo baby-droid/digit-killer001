@@ -6,8 +6,10 @@ import {
   Settings2, X,
 } from "lucide-react";
 
-const DERIV_WS_LEGACY = "wss://ws.binaryws.com/websockets/v3?app_id=1089";
-const DERIV_WS_BETA   = "wss://ws.derivws.com/websockets/v3?app_id=1089";
+function getProxyWsUrl(): string {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${location.host}/ws/deriv`;
+}
 
 const MIN_CONFIDENCE = 85;
 
@@ -34,34 +36,34 @@ const DIGIT_COLORS: Record<number, string> = {
 };
 
 function useDerivWS(token: string | null) {
-  const ws = useRef<WebSocket | null>(null);
-  const [status, setStatus] = useState<"disconnected" | "connecting" | "authorizing" | "connected">("disconnected");
-  const [account, setAccount] = useState<Account | null>(null);
-  const [accountList, setAccountList] = useState<AccountListItem[]>([]);
-  const [balance, setBalance] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const reqId = useRef(1);
-  const listeners = useRef<Map<number, (m: Record<string, unknown>) => void>>(new Map());
+  const ws           = useRef<WebSocket | null>(null);
+  const reqId        = useRef(2);
+  const listeners    = useRef<Map<number, (m: Record<string, unknown>) => void>>(new Map());
   const typeListeners = useRef<Map<string, (m: Record<string, unknown>) => void>>(new Map());
+  const currentToken = useRef<string>("");
 
-  const getWsUrl = useCallback((t: string) =>
-    t.trim().startsWith("pat_") ? DERIV_WS_BETA : DERIV_WS_LEGACY, []);
+  const [status,      setStatus     ] = useState<"disconnected"|"connecting"|"authorizing"|"connected">("disconnected");
+  const [account,     setAccount    ] = useState<Account | null>(null);
+  const [accountList, setAccountList] = useState<AccountListItem[]>([]);
+  const [balance,     setBalance    ] = useState<number | null>(null);
+  const [error,       setError      ] = useState<string | null>(null);
 
   const send = useCallback((msg: Record<string, unknown>) => {
     const id = reqId.current++;
-    ws.current?.send(JSON.stringify({ ...msg, req_id: id }));
+    if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify({ ...msg, req_id: id }));
     return id;
   }, []);
 
   const request = useCallback((msg: Record<string, unknown>): Promise<Record<string, unknown>> =>
     new Promise((resolve, reject) => {
+      if (ws.current?.readyState !== WebSocket.OPEN) { reject(new Error("Not connected")); return; }
       const id = reqId.current++;
       listeners.current.set(id, (r) => {
         if (r.error) reject(new Error((r.error as Record<string,string>)?.message ?? "API error"));
         else resolve(r);
       });
-      ws.current?.send(JSON.stringify({ ...msg, req_id: id }));
-      setTimeout(() => { listeners.current.delete(id); reject(new Error("timeout")); }, 20000);
+      ws.current.send(JSON.stringify({ ...msg, req_id: id }));
+      setTimeout(() => { listeners.current.delete(id); reject(new Error("timeout")); }, 25_000);
     }), []);
 
   const onMessage = useCallback((type: string, cb: (m: Record<string, unknown>) => void) => {
@@ -69,85 +71,86 @@ function useDerivWS(token: string | null) {
     return () => typeListeners.current.delete(type);
   }, []);
 
-  const connect = useCallback((overrideToken?: string) => {
-    const t = (overrideToken !== undefined ? overrideToken : token ?? "").trim();
-    if (!t) return;
-    ws.current?.close();
-    setStatus("connecting"); setError(null);
-    const url = getWsUrl(t);
-    const socket = new WebSocket(url);
+  const openSocket = useCallback((t: string, onAuthorized?: () => void) => {
+    const socket = new WebSocket(getProxyWsUrl());
     ws.current = socket;
-    socket.onopen  = () => { setStatus("authorizing"); socket.send(JSON.stringify({ authorize: t, req_id: reqId.current++ })); };
+
+    socket.onopen = () => {
+      setStatus("connecting");
+      socket.send(JSON.stringify({ type: "auth", token: t }));
+    };
+
     socket.onmessage = (e) => {
       try {
-        const msg = JSON.parse(e.data) as Record<string, unknown>;
-        const id = msg.req_id as number;
-        const type = msg.msg_type as string;
-        if (listeners.current.has(id)) { listeners.current.get(id)!(msg); listeners.current.delete(id); }
-        typeListeners.current.get(type)?.(msg);
+        const msg       = JSON.parse(e.data as string) as Record<string, unknown>;
+        const proxyType = msg.type as string | undefined;
+        const msgType   = msg.msg_type as string | undefined;
+        const id        = msg.req_id as number | undefined;
 
-        if (type === "authorize") {
+        if (proxyType === "proxy_open")         { setStatus("authorizing"); return; }
+        if (proxyType === "proxy_reconnecting") { setStatus("connecting"); setAccount(null); setBalance(null); return; }
+        if (proxyType === "proxy_error")        { setError(String((msg as Record<string,string>).message ?? "Proxy error")); setStatus("disconnected"); return; }
+        if (proxyType === "proxy_not_ready")    { return; }
+
+        if (id !== undefined && listeners.current.has(id)) { listeners.current.get(id)!(msg); listeners.current.delete(id); }
+        if (msgType) typeListeners.current.get(msgType)?.(msg);
+
+        if (msgType === "authorize") {
           const auth = msg.authorize as Record<string, unknown>;
           setAccount({ loginid: auth.loginid as string, currency: auth.currency as string,
             balance: auth.balance as number, account_type: auth.account_type as string,
             is_virtual: (auth.is_virtual as number) === 1 });
           setBalance(auth.balance as number);
-          setStatus("connected");
-          const list = (auth.account_list as AccountListItem[] | undefined) ?? [];
-          setAccountList(list);
+          setStatus("connected"); setError(null);
+          setAccountList((auth.account_list as AccountListItem[]) ?? []);
           socket.send(JSON.stringify({ balance: 1, subscribe: 1, req_id: reqId.current++ }));
+          onAuthorized?.();
         }
-        if (type === "balance") setBalance(((msg.balance as Record<string,unknown>).balance) as number);
-        if (type === "error" || msg.error) {
+        if (msgType === "balance") setBalance(((msg.balance as Record<string,unknown>).balance) as number);
+        if ((msgType === "error" || msg.error) && status !== "connected") {
           setError((msg.error as Record<string,string>)?.message ?? "Connection error");
           setStatus("disconnected");
         }
       } catch {}
     };
-    socket.onclose = () => { setStatus("disconnected"); setAccount(null); setBalance(null); };
-    socket.onerror = () => { setError("WebSocket error"); setStatus("disconnected"); };
-  }, [token, getWsUrl]);
+
+    socket.onclose = (ev) => {
+      setStatus("disconnected"); setAccount(null); setBalance(null);
+      if (ev.code !== 1000 && ev.code !== 1001) setError(`Disconnected (${ev.code}) — reconnect to resume`);
+    };
+    socket.onerror = () => { setError("Cannot reach backend proxy"); setStatus("disconnected"); };
+  }, [status]);
+
+  const connect = useCallback((overrideToken?: string) => {
+    const t = (overrideToken !== undefined ? overrideToken : token ?? "").trim();
+    if (!t) return;
+    currentToken.current = t;
+    ws.current?.close(1000);
+    setStatus("connecting"); setError(null); setAccount(null); setBalance(null);
+    openSocket(t);
+  }, [token, openSocket]);
 
   const disconnect = useCallback(() => {
-    ws.current?.close(); ws.current = null;
+    currentToken.current = "";
+    ws.current?.close(1000); ws.current = null;
     setStatus("disconnected"); setAccount(null); setBalance(null); setError(null);
   }, []);
 
   const switchAccount = useCallback(async (loginid: string, switchToken?: string) => {
-    if (!switchToken && !token) return;
-    const t = switchToken ?? token ?? "";
-    if (ws.current) { ws.current.close(); ws.current = null; }
-    setStatus("authorizing");
+    const t = (switchToken ?? currentToken.current ?? "").trim();
+    if (!t) return;
     void loginid;
-    const url = getWsUrl(t);
-    const socket = new WebSocket(url);
-    ws.current = socket;
-    socket.onopen = () => { socket.send(JSON.stringify({ authorize: t, req_id: reqId.current++ })); };
-    socket.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data) as Record<string, unknown>;
-        const type = msg.msg_type as string;
-        if (type === "authorize") {
-          const auth = msg.authorize as Record<string, unknown>;
-          setAccount({ loginid: auth.loginid as string, currency: auth.currency as string,
-            balance: auth.balance as number, account_type: auth.account_type as string,
-            is_virtual: (auth.is_virtual as number) === 1 });
-          setBalance(auth.balance as number);
-          setStatus("connected");
-          socket.send(JSON.stringify({ balance: 1, subscribe: 1, req_id: reqId.current++ }));
-        }
-        typeListeners.current.get(type)?.(msg);
-      } catch {}
-    };
-    socket.onclose  = () => { setStatus("disconnected"); };
-    socket.onerror  = () => { setError("Switch failed"); setStatus("disconnected"); };
-  }, [token, getWsUrl]);
+    currentToken.current = t;
+    ws.current?.close(1000);
+    setStatus("connecting"); setAccount(null); setBalance(null);
+    openSocket(t);
+  }, [openSocket]);
 
   const sellContract = useCallback(async (contractId: number, price: number) => {
     return request({ sell: contractId, price });
   }, [request]);
 
-  useEffect(() => () => { ws.current?.close(); }, []);
+  useEffect(() => () => { ws.current?.close(1000); }, []);
   return { status, account, accountList, balance, error, connect, disconnect, send, request, onMessage, switchAccount, sellContract };
 }
 

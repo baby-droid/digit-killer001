@@ -71,6 +71,11 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
       },
+      "/ws/deriv": {
+        target: "ws://localhost:8080",
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
   preview: {

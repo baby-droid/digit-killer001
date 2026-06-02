@@ -39,109 +39,163 @@ interface Account {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const DERIV_WS_LEGACY = "wss://ws.binaryws.com/websockets/v3?app_id=1089";
-const DERIV_WS_BETA   = "wss://ws.derivws.com/websockets/v3?app_id=1089";
-const MIN_CONFIDENCE  = 87;
+const MIN_CONFIDENCE = 87;
 
 const CONTRACT_LABELS: Record<string, string> = {
   DIGITEVEN: "Even", DIGITODD: "Odd", DIGITOVER: "Over", DIGITUNDER: "Under",
   DIGITMATCH: "Match", DIGITDIFF: "Differ", CALL: "Rise", PUT: "Fall",
 };
 
-// ─── Deriv WS hook ────────────────────────────────────────────────────────────
+// Build the backend proxy WS URL (same-origin — works through Replit's proxy)
+function getProxyUrl(): string {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${location.host}/ws/deriv`;
+}
+
+// ─── Deriv WS hook (via backend proxy) ────────────────────────────────────────
+// The browser connects to our own backend at /ws/deriv.
+// The backend tunnels to Deriv and handles reconnection automatically.
+// This avoids Replit's external WebSocket restrictions entirely.
 function useDerivWS() {
-  const ws = useRef<WebSocket | null>(null);
-  const reqId = useRef(1);
+  const ws        = useRef<WebSocket | null>(null);
+  const reqId     = useRef(2);   // 1 is reserved for the proxy's authorize frame
   const listeners = useRef<Map<number, (m: Record<string, unknown>) => void>>(new Map());
-  const [status, setStatus] = useState<"disconnected" | "connecting" | "authorizing" | "connected">("disconnected");
+  const tokenRef  = useRef<string>("");
+
+  const [status,  setStatus ] = useState<"disconnected"|"connecting"|"authorizing"|"connected">("disconnected");
   const [account, setAccount] = useState<Account | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error,   setError  ] = useState<string | null>(null);
 
+  // Send a raw message to Deriv via the proxy
+  const send = useCallback((msg: Record<string, unknown>) => {
+    ws.current?.readyState === WebSocket.OPEN &&
+      ws.current.send(JSON.stringify(msg));
+  }, []);
+
+  // Deriv API request with promise + timeout
   const request = useCallback((msg: Record<string, unknown>): Promise<Record<string, unknown>> =>
     new Promise((resolve, reject) => {
       if (ws.current?.readyState !== WebSocket.OPEN) {
-        reject(new Error("Not connected")); return;
+        reject(new Error("Not connected to Deriv")); return;
       }
       const id = reqId.current++;
       listeners.current.set(id, (r) => {
-        if (r.error) reject(new Error((r.error as Record<string, string>)?.message ?? "API error"));
+        if (r.error) reject(new Error((r.error as Record<string, string>)?.message ?? "Deriv API error"));
         else resolve(r);
       });
       ws.current.send(JSON.stringify({ ...msg, req_id: id }));
-      setTimeout(() => { listeners.current.delete(id); reject(new Error("timeout")); }, 20000);
+      setTimeout(() => {
+        listeners.current.delete(id);
+        reject(new Error("Request timed out"));
+      }, 25_000);
     }), []);
 
-  const connectToUrl = useCallback((url: string, token: string, fallbackUrl?: string) => {
-    const socket = new WebSocket(url);
-    ws.current = socket;
-    let authorized = false;
+  const openSocket = useCallback((token: string) => {
+    const proxyUrl = getProxyUrl();
+    const socket   = new WebSocket(proxyUrl);
+    ws.current     = socket;
+
     socket.onopen = () => {
-      setStatus("authorizing");
-      socket.send(JSON.stringify({ authorize: token, req_id: reqId.current++ }));
+      setStatus("connecting");
+      // Step 1: authenticate with our proxy
+      socket.send(JSON.stringify({ type: "auth", token }));
     };
-    socket.onmessage = (e) => {
+
+    socket.onmessage = (e: MessageEvent<string>) => {
       try {
-        const msg = JSON.parse(e.data) as Record<string, unknown>;
-        const id = msg.req_id as number;
-        const type = msg.msg_type as string;
-        if (listeners.current.has(id)) {
-          listeners.current.get(id)!(msg); listeners.current.delete(id);
+        const msg  = JSON.parse(e.data) as Record<string, unknown>;
+        const type = msg.type as string | undefined;
+        const msgType = msg.msg_type as string | undefined;
+        const reqId_ = msg.req_id as number | undefined;
+
+        // ── Proxy control messages ──────────────────────────────────────
+        if (type === "proxy_open") {
+          setStatus("authorizing");
+          return;
         }
-        if (type === "authorize") {
-          authorized = true;
+        if (type === "proxy_reconnecting") {
+          setStatus("connecting");
+          setAccount(null); setBalance(null);
+          return;
+        }
+        if (type === "proxy_error") {
+          const errMsg = String((msg as Record<string, string>).message ?? "Connection error");
+          setError(errMsg);
+          setStatus("disconnected");
+          setAccount(null); setBalance(null);
+          return;
+        }
+        if (type === "proxy_not_ready") return; // transient, ignore
+
+        // ── Resolve pending request listeners ──────────────────────────
+        if (reqId_ !== undefined && listeners.current.has(reqId_)) {
+          listeners.current.get(reqId_)!(msg);
+          listeners.current.delete(reqId_);
+        }
+
+        // ── Deriv protocol messages ────────────────────────────────────
+        if (msgType === "authorize") {
           const auth = msg.authorize as Record<string, unknown>;
           setAccount({
-            loginid: auth.loginid as string,
-            currency: auth.currency as string,
-            balance: auth.balance as number,
+            loginid:    auth.loginid    as string,
+            currency:   auth.currency   as string,
+            balance:    auth.balance    as number,
             is_virtual: (auth.is_virtual as number) === 1,
           });
           setBalance(auth.balance as number);
           setStatus("connected");
           setError(null);
-          socket.send(JSON.stringify({ balance: 1, subscribe: 1, req_id: reqId.current++ }));
+          // Subscribe to live balance updates
+          send({ balance: 1, subscribe: 1, req_id: reqId.current++ });
         }
-        if (type === "balance") setBalance(((msg.balance as Record<string, unknown>).balance) as number);
-        if ((type === "error" || msg.error) && !authorized) {
+
+        if (msgType === "balance") {
+          setBalance(((msg.balance as Record<string, unknown>).balance) as number);
+        }
+
+        if ((msgType === "error" || msg.error) && !account) {
           const errMsg = (msg.error as Record<string, string>)?.message ?? "Auth error";
-          if (fallbackUrl) {
-            socket.close();
-            connectToUrl(fallbackUrl, token);
-          } else {
-            setError(errMsg); setStatus("disconnected");
-          }
+          setError(errMsg); setStatus("disconnected");
         }
-      } catch {}
+
+      } catch { /* malformed JSON from proxy — ignore */ }
     };
-    socket.onclose = () => {
-      if (!authorized) {
-        if (fallbackUrl) { connectToUrl(fallbackUrl, token); return; }
-        setStatus("disconnected"); setAccount(null); setBalance(null);
-      } else {
-        setStatus("disconnected"); setAccount(null); setBalance(null);
+
+    socket.onclose = (e) => {
+      setStatus("disconnected");
+      setAccount(null); setBalance(null);
+      // If it wasn't a deliberate disconnect, show a user-friendly message
+      if (e.code !== 1000 && e.code !== 1001) {
+        setError(`Disconnected (code ${e.code}) — check your token and reconnect`);
       }
     };
+
     socket.onerror = () => {
-      if (!authorized && fallbackUrl) { connectToUrl(fallbackUrl, token); }
-      else { setError("WebSocket error"); setStatus("disconnected"); }
+      setError("Cannot reach the backend server — is the API server running?");
+      setStatus("disconnected");
     };
-  }, []);
+  }, [account, send]);
 
   const connect = useCallback((token: string) => {
     const t = token.trim();
     if (!t) return;
-    ws.current?.close();
+    tokenRef.current = t;
+    ws.current?.close(1000);
     setStatus("connecting"); setError(null);
-    connectToUrl(DERIV_WS_BETA, t, DERIV_WS_LEGACY);
-  }, [connectToUrl]);
+    setAccount(null); setBalance(null);
+    openSocket(t);
+  }, [openSocket]);
 
   const disconnect = useCallback(() => {
-    ws.current?.close(); ws.current = null;
+    tokenRef.current = "";
+    ws.current?.close(1000);
+    ws.current = null;
     setStatus("disconnected"); setAccount(null); setBalance(null); setError(null);
   }, []);
 
-  useEffect(() => () => { ws.current?.close(); }, []);
+  useEffect(() => () => { ws.current?.close(1000); }, []);
+
   return { status, account, balance, error, connect, disconnect, request };
 }
 
