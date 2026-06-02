@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { GraduationCap, BookOpen, Target, Zap, CheckCircle, XCircle, ChevronRight, Download, Star, Trophy, Lock, Play } from "lucide-react";
+import { useState, useMemo } from "react";
+import { GraduationCap, BookOpen, Target, Zap, CheckCircle, XCircle, ChevronRight, Download, Star, Trophy, Lock, Play, Search, X } from "lucide-react";
 
 type Level = "beginner" | "intermediate" | "pro";
 
@@ -596,6 +596,7 @@ export default function TeachingPage() {
   const [level, setLevel] = useState<Level>("beginner");
   const [openLesson, setOpenLesson] = useState<string | null>(null);
   const [tab, setTab] = useState<"lessons" | "quiz" | "challenges">("lessons");
+  const [search, setSearch] = useState("");
 
   const levelConfig: Record<Level, { color: string; icon: typeof BookOpen; label: string; desc: string; locked: boolean }> = {
     beginner:     { color: "#22c55e", icon: BookOpen,     label: "Beginner",     desc: "New to digit trading",       locked: false },
@@ -604,6 +605,27 @@ export default function TeachingPage() {
   };
 
   const cfg = levelConfig[level];
+
+  const q = search.trim().toLowerCase();
+
+  const filteredLessons = useMemo(() => {
+    if (!q) return LESSONS[level];
+    return LESSONS[level].filter((l) =>
+      l.title.toLowerCase().includes(q) ||
+      l.description.toLowerCase().includes(q) ||
+      l.content.some((c) => c.toLowerCase().includes(q)) ||
+      l.keyPoints.some((k) => k.toLowerCase().includes(q))
+    );
+  }, [q, level]);
+
+  const filteredChallenges = useMemo(() => {
+    if (!q) return CHALLENGES;
+    return CHALLENGES.filter((c) =>
+      c.title.toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q) ||
+      c.target.toLowerCase().includes(q)
+    );
+  }, [q]);
 
   return (
     <div className="space-y-4 animate-fade-in-up max-w-3xl" data-testid="page-teaching">
@@ -623,6 +645,26 @@ export default function TeachingPage() {
         </button>
       </div>
 
+      {/* Search panel */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search lessons, strategies, challenges…"
+          className="w-full pl-9 pr-9 py-2.5 rounded-xl font-rajdhani text-sm bg-background border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
       {/* Level selector */}
       <div className="grid grid-cols-3 gap-2">
         {(["beginner","intermediate","pro"] as Level[]).map((lvl) => {
@@ -630,7 +672,7 @@ export default function TeachingPage() {
           const Icon = lc.icon;
           const active = level === lvl;
           return (
-            <button key={lvl} onClick={() => { setLevel(lvl); setOpenLesson(null); }}
+            <button key={lvl} onClick={() => { setLevel(lvl); setOpenLesson(null); setSearch(""); }}
               className="rounded-xl p-3 text-left transition-all"
               style={active
                 ? { background: `${lc.color}15`, border: `2px solid ${lc.color}`, color: lc.color }
@@ -671,10 +713,17 @@ export default function TeachingPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="font-rajdhani text-xs font-bold tracking-widest uppercase" style={{ color: cfg.color }}>
-              {cfg.label} Track — {LESSONS[level].length} Lessons
+              {q
+                ? `${filteredLessons.length} results for "${search}"`
+                : `${cfg.label} Track — ${LESSONS[level].length} Lessons`}
             </span>
           </div>
-          {LESSONS[level].map((lesson) => (
+          {filteredLessons.length === 0 && (
+            <div className="cyber-card p-6 text-center font-rajdhani text-sm text-muted-foreground">
+              No lessons found for "{search}"
+            </div>
+          )}
+          {filteredLessons.map((lesson) => (
             <LessonCard key={lesson.id} lesson={lesson}
               isOpen={openLesson === lesson.id}
               onToggle={() => setOpenLesson((p) => p === lesson.id ? null : lesson.id)} />
@@ -702,9 +751,15 @@ export default function TeachingPage() {
             <Trophy size={14} className="text-primary" />
             <div className="font-rajdhani text-xs text-muted-foreground">
               Complete challenges to sharpen your skills. Start with difficulty 1 and work up.
+              {q && ` · Showing ${filteredChallenges.length} of ${CHALLENGES.length} matches`}
             </div>
           </div>
-          {CHALLENGES.map((c, i) => <ChallengeCard key={i} challenge={c} />)}
+          {filteredChallenges.length === 0 && (
+            <div className="cyber-card p-6 text-center font-rajdhani text-sm text-muted-foreground">
+              No challenges found for "{search}"
+            </div>
+          )}
+          {filteredChallenges.map((c, i) => <ChallengeCard key={i} challenge={c} />)}
         </div>
       )}
     </div>

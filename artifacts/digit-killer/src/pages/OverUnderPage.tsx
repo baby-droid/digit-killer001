@@ -4,6 +4,7 @@ import {
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
 import { TrendingUp, TrendingDown, AlertCircle, Activity } from "lucide-react";
+import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
 
 interface FreqEntry { digit: number; count: number; pct: number }
 
@@ -423,6 +424,23 @@ export default function OverUnderPage() {
           </div>
         </div>
       )}
+
+      {/* Auto Trade Panel */}
+      <AutoTradePanel
+        symbol={symbol}
+        pageLabel="Over/Under"
+        signals={entries.map((e): TradeSignal => {
+          const parts = e.contract.split(" ");
+          const isOver = parts[0] === "OVER";
+          return {
+            contract_type: isOver ? "DIGITOVER" : "DIGITUNDER",
+            confidence: e.confidence,
+            ticks: parseInt(String(e.recommended_ticks).split("-")[0]) || 1,
+            barrier: parseInt(parts[1]),
+            label: e.contract,
+          };
+        })}
+      />
     </div>
   );
 }

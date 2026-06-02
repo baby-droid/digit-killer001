@@ -5,6 +5,7 @@ import {
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
 import { Divide, CheckCircle, XCircle, AlertTriangle, TrendingUp, TrendingDown, Zap } from "lucide-react";
+import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
 
 const DIGIT_COLORS: Record<number, string> = {
   0: "#00897b", 1: "#1e88e5", 2: "#8e24aa", 3: "#43a047", 4: "#fb8c00",
@@ -535,6 +536,22 @@ export default function EvenOddPage() {
           </div>
         </div>
       )}
+
+      {/* Auto Trade Panel */}
+      <AutoTradePanel
+        symbol={symbol}
+        pageLabel="Even/Odd"
+        signals={
+          activeSignal
+            ? ([{
+                contract_type: activeSignal === "BUY EVEN" ? "DIGITEVEN" : "DIGITODD",
+                confidence,
+                ticks: ticks || 3,
+                label: activeSignal,
+              }] as TradeSignal[])
+            : ([] as TradeSignal[])
+        }
+      />
     </div>
   );
 }

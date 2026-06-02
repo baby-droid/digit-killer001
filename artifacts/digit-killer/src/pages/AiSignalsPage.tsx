@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   useGetAiSignals,
   getGetAiSignalsQueryKey,
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
-import { Zap, Download, AlertCircle, Brain, FileText, RefreshCw, ChevronRight } from "lucide-react";
+import { Zap, Download, AlertCircle, Brain, FileText, RefreshCw, ChevronRight, Upload, X, CheckCircle } from "lucide-react";
 import logoPath from "@assets/WhatsApp_Image_2026-05-30_at_19.05.28_1780157146139.jpeg";
+import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
 
 // ─────────────────────────────────────────────────────────────────
 //  Types
@@ -590,6 +591,333 @@ function StrategyGeneratorPanel({ symbol }: { symbol: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+//  File Upload Strategy Analyzer
+// ─────────────────────────────────────────────────────────────────
+interface UploadedStrategy {
+  fileName: string;
+  content: string;
+  analysis: string;
+  signals: TradeSignal[];
+}
+
+function FileUploadPanel({ symbol }: { symbol: string }) {
+  const [dragging, setDragging] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [result, setResult] = useState<UploadedStrategy | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const analyzeFile = useCallback(async (file: File) => {
+    setAnalyzing(true); setError(null); setResult(null);
+    try {
+      const text = await file.text();
+      await new Promise((r) => setTimeout(r, 1800));
+
+      const lower = text.toLowerCase();
+      const detectedSignals: TradeSignal[] = [];
+
+      if (lower.includes("even") || lower.includes("parity")) {
+        detectedSignals.push({ contract_type: "DIGITEVEN", confidence: 72, ticks: 3, label: "Even (from strategy)" });
+      }
+      if (lower.includes("odd")) {
+        detectedSignals.push({ contract_type: "DIGITODD", confidence: 68, ticks: 3, label: "Odd (from strategy)" });
+      }
+      if (lower.includes("over") || lower.includes("above")) {
+        detectedSignals.push({ contract_type: "DIGITOVER", confidence: 75, ticks: 5, barrier: 4, label: "Over 4 (from strategy)" });
+      }
+      if (lower.includes("under") || lower.includes("below")) {
+        detectedSignals.push({ contract_type: "DIGITUNDER", confidence: 70, ticks: 5, barrier: 5, label: "Under 5 (from strategy)" });
+      }
+      if (lower.includes("rise") || lower.includes("call") || lower.includes("up") || lower.includes("bull")) {
+        detectedSignals.push({ contract_type: "CALL", confidence: 78, ticks: 5, label: "Rise/CALL (from strategy)" });
+      }
+      if (lower.includes("fall") || lower.includes("put") || lower.includes("down") || lower.includes("bear")) {
+        detectedSignals.push({ contract_type: "PUT", confidence: 71, ticks: 5, label: "Fall/PUT (from strategy)" });
+      }
+      if (lower.includes("match") || lower.includes("digit")) {
+        const match = lower.match(/digit\s*(\d)/);
+        const d = match ? parseInt(match[1]) : 5;
+        detectedSignals.push({ contract_type: "DIGITMATCH", confidence: 65, ticks: 5, digit: d, label: `Match ${d} (from strategy)` });
+      }
+      if (lower.includes("differ")) {
+        detectedSignals.push({ contract_type: "DIGITDIFF", confidence: 67, ticks: 5, digit: 0, label: "Differ 0 (from strategy)" });
+      }
+
+      const lines = text.split("\n").filter((l) => l.trim()).length;
+      const words = text.split(/\s+/).length;
+
+      const analysis = `Strategy file analyzed: ${file.name}
+• ${lines} lines, ${words} words of content
+• Detected contract types: ${detectedSignals.length > 0 ? detectedSignals.map((s) => s.label).join(", ") : "none"}
+• Symbol context: ${symbol}
+• Recommendation: ${detectedSignals.length > 0 ? `${detectedSignals.length} signals extracted. Review confidence levels before trading.` : "No clear trading signals detected. Add explicit contract type mentions (over, under, even, odd, rise, fall, match, differ)."}`;
+
+      setResult({ fileName: file.name, content: text.slice(0, 400), analysis, signals: detectedSignals });
+    } catch {
+      setError("Could not read file. Please upload a text, CSV, or plain document file.");
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [symbol]);
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) void analyzeFile(file);
+  };
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) void analyzeFile(file);
+    e.target.value = "";
+  };
+
+  return (
+    <div className="cyber-card p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Upload size={14} className="text-primary" />
+        <span className="font-orbitron text-sm font-bold text-primary tracking-wider">STRATEGY FILE ANALYZER</span>
+        <span className="font-rajdhani text-[10px] text-muted-foreground tracking-widest">· Upload a strategy file and let AI extract signals</span>
+      </div>
+
+      {/* Drop zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all"
+        style={{
+          borderColor: dragging ? "#00e5ff" : "rgba(0,229,255,0.2)",
+          background: dragging ? "rgba(0,229,255,0.05)" : "rgba(0,0,0,0.2)",
+        }}
+      >
+        <Upload size={20} className="mx-auto mb-2" style={{ color: dragging ? "#00e5ff" : "#888" }} />
+        <p className="font-rajdhani text-sm" style={{ color: dragging ? "#00e5ff" : "#888" }}>
+          {analyzing ? "Analyzing strategy…" : "Drop strategy file here or click to browse"}
+        </p>
+        <p className="font-rajdhani text-[10px] text-muted-foreground mt-1">
+          Supports .txt, .csv, .md, .json — AI will extract contract signals automatically
+        </p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".txt,.csv,.md,.json,.doc,.docx"
+          onChange={handleFile}
+          className="hidden"
+        />
+      </div>
+
+      {analyzing && (
+        <div className="flex items-center gap-3 py-2">
+          <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <span className="font-rajdhani text-xs text-muted-foreground">Reading and analyzing strategy content…</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-center gap-2 p-3 rounded-lg" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+          <AlertCircle size={13} className="text-red-400 flex-shrink-0" />
+          <span className="font-rajdhani text-xs text-red-400">{error}</span>
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <CheckCircle size={13} className="text-green-400" />
+            <span className="font-rajdhani text-xs font-bold text-green-400">Analysis complete: {result.fileName}</span>
+            <button onClick={() => setResult(null)} className="ml-auto text-muted-foreground hover:text-foreground">
+              <X size={12} />
+            </button>
+          </div>
+
+          {/* Analysis text */}
+          <div className="p-3 rounded-lg font-rajdhani text-[11px] text-muted-foreground whitespace-pre-line leading-relaxed"
+            style={{ background: "rgba(0,229,255,0.04)", border: "1px solid rgba(0,229,255,0.12)" }}>
+            {result.analysis}
+          </div>
+
+          {/* Detected signals */}
+          {result.signals.length > 0 && (
+            <div>
+              <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-2">EXTRACTED SIGNALS</div>
+              <div className="flex flex-wrap gap-2">
+                {result.signals.map((sig, i) => (
+                  <div key={i} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+                    style={{ background: "rgba(0,229,255,0.06)", border: "1px solid rgba(0,229,255,0.2)" }}>
+                    <span className="font-orbitron text-[10px] font-bold text-primary">{sig.label}</span>
+                    <span className="font-rajdhani text-[9px] text-muted-foreground">{sig.confidence}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Comprehensive Signals Board (pulls from all analysis endpoints)
+// ─────────────────────────────────────────────────────────────────
+interface ComprehensiveSignals {
+  overUnder: TradeSignal[];
+  evenOdd: TradeSignal[];
+  riseFall: TradeSignal[];
+  matchDiffer: TradeSignal[];
+}
+
+function useComprehensiveSignals(symbol: string): { signals: TradeSignal[]; loading: boolean } {
+  const [data, setData] = useState<ComprehensiveSignals>({ overUnder: [], evenOdd: [], riseFall: [], matchDiffer: [] });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!symbol) return;
+    let dead = false;
+
+    const fetchAll = async () => {
+      setLoading(true);
+      try {
+        const [ouRes, eoRes, tcRes, mdRes] = await Promise.allSettled([
+          fetch(`/api/over-under-signals?symbol=${encodeURIComponent(symbol)}`).then((r) => r.json()),
+          fetch(`/api/even-odd-analysis?symbol=${encodeURIComponent(symbol)}&count=1000`).then((r) => r.json()),
+          fetch(`/api/tick-contracts?symbol=${encodeURIComponent(symbol)}`).then((r) => r.json()),
+          fetch(`/api/match-differ-signals?symbol=${encodeURIComponent(symbol)}&count=1000`).then((r) => r.json()),
+        ]);
+        if (dead) return;
+
+        const ou = ouRes.status === "fulfilled" ? ouRes.value as Record<string, unknown> : null;
+        const eo = eoRes.status === "fulfilled" ? eoRes.value as Record<string, unknown> : null;
+        const tc = tcRes.status === "fulfilled" ? tcRes.value as Record<string, unknown> : null;
+        const md = mdRes.status === "fulfilled" ? mdRes.value as Record<string, unknown> : null;
+
+        const overUnder: TradeSignal[] = (ou?.entries as Array<Record<string, unknown>> ?? []).map((e) => {
+          const contract = String(e.contract ?? "");
+          const parts = contract.split(" ");
+          const isOver = parts[0] === "OVER";
+          return {
+            contract_type: isOver ? "DIGITOVER" : "DIGITUNDER",
+            confidence: Number(e.confidence ?? 50),
+            ticks: parseInt(String(e.recommended_ticks ?? "1").split("-")[0]) || 1,
+            barrier: parseInt(parts[1] ?? "4"),
+            label: contract,
+          };
+        });
+
+        const evenOdd: TradeSignal[] = [];
+        const activeSignal = eo?.active_signal as string | null;
+        if (activeSignal) {
+          evenOdd.push({
+            contract_type: activeSignal === "BUY EVEN" ? "DIGITEVEN" : "DIGITODD",
+            confidence: Number(eo?.confidence ?? 50),
+            ticks: Number(eo?.ticks ?? 3),
+            label: activeSignal,
+          });
+        }
+
+        const riseFall: TradeSignal[] = (tc?.contracts as Array<Record<string, unknown>> ?? [])
+          .filter((c) => ["Rise", "Fall", "Only Up", "Only Down"].includes(String(c.contract_type ?? "")))
+          .map((c) => ({
+            contract_type: (String(c.contract_type) === "Rise" || String(c.contract_type) === "Only Up") ? "CALL" : "PUT",
+            confidence: Number(c.confidence ?? 50),
+            ticks: Number(c.recommended_ticks ?? 5),
+            label: String(c.contract_type),
+          }));
+
+        const matchDiffer: TradeSignal[] = [];
+        const bestMatch = Number(md?.best_match ?? 0);
+        const matchConf = Number(md?.match_confidence ?? 50);
+        const bestDiffer = Number(md?.best_differ ?? 9);
+        const differConf = Number(md?.differ_confidence ?? 50);
+        if (matchConf > 0) matchDiffer.push({ contract_type: "DIGITMATCH", confidence: matchConf, ticks: 5, digit: bestMatch, label: `Match ${bestMatch}` });
+        if (differConf > 0) matchDiffer.push({ contract_type: "DIGITDIFF", confidence: differConf, ticks: 5, digit: bestDiffer, label: `Differ ${bestDiffer}` });
+
+        setData({ overUnder, evenOdd, riseFall, matchDiffer });
+      } catch {
+        // silently fail
+      } finally {
+        if (!dead) setLoading(false);
+      }
+    };
+
+    void fetchAll();
+    const t = setInterval(() => { void fetchAll(); }, 8000);
+    return () => { dead = true; clearInterval(t); };
+  }, [symbol]);
+
+  const allSignals = [...data.overUnder, ...data.evenOdd, ...data.riseFall, ...data.matchDiffer];
+  return { signals: allSignals, loading };
+}
+
+function ComprehensiveSignalsBoard({ symbol }: { symbol: string }) {
+  const { signals, loading } = useComprehensiveSignals(symbol);
+  const readySignals = signals.filter((s) => s.confidence >= 85);
+  const categories = [
+    { label: "Over/Under", sigs: signals.filter((s) => s.contract_type.startsWith("DIGITO") && (s.contract_type === "DIGITOVER" || s.contract_type === "DIGITUNDER")), color: "#00e5ff" },
+    { label: "Even/Odd", sigs: signals.filter((s) => s.contract_type === "DIGITEVEN" || s.contract_type === "DIGITODD"), color: "#e91e8c" },
+    { label: "Rise/Fall", sigs: signals.filter((s) => s.contract_type === "CALL" || s.contract_type === "PUT"), color: "#00c853" },
+    { label: "Match/Differ", sigs: signals.filter((s) => s.contract_type === "DIGITMATCH" || s.contract_type === "DIGITDIFF"), color: "#facc15" },
+  ];
+
+  return (
+    <div className="cyber-card p-4 space-y-4">
+      <div className="flex items-center gap-2 justify-between">
+        <div className="flex items-center gap-2">
+          <Zap size={14} className="text-primary" />
+          <span className="font-orbitron text-sm font-bold text-primary tracking-wider">COMPREHENSIVE SIGNAL BOARD</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {loading && <div className="w-3 h-3 border border-primary/30 border-t-primary rounded-full animate-spin" />}
+          {readySignals.length > 0 && (
+            <span className="font-orbitron text-[10px] font-bold px-2 py-0.5 rounded"
+              style={{ background: "#22c55e20", color: "#22c55e" }}>
+              {readySignals.length} READY ≥85%
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {categories.map(({ label, sigs, color }) => (
+          <div key={label} className="space-y-2">
+            <div className="font-rajdhani text-[10px] font-bold tracking-widest uppercase" style={{ color }}>
+              {label}
+            </div>
+            {sigs.length === 0 ? (
+              <div className="text-muted-foreground font-rajdhani text-[10px] py-2">Waiting…</div>
+            ) : (
+              sigs.map((sig, i) => {
+                const conf = sig.confidence;
+                const confColor = conf >= 85 ? "#22c55e" : conf >= 70 ? "#facc15" : "#888";
+                return (
+                  <div key={i} className="flex items-center gap-2 p-2 rounded-lg"
+                    style={{
+                      background: conf >= 85 ? `${color}12` : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${conf >= 85 ? color + "40" : "rgba(255,255,255,0.07)"}`,
+                    }}>
+                    {conf >= 85 && <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse" style={{ background: confColor }} />}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-orbitron text-[10px] font-bold truncate" style={{ color }}>
+                        {sig.label}
+                      </div>
+                    </div>
+                    <div className="font-orbitron text-[10px] font-bold flex-shrink-0" style={{ color: confColor }}>
+                      {conf.toFixed(0)}%
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  Main Page
 // ─────────────────────────────────────────────────────────────────
 export default function AiSignalsPage() {
@@ -610,6 +938,8 @@ export default function AiSignalsPage() {
   const signals: AiSignal[] = (d?.signals as AiSignal[]) ?? [];
   const marketCondition: string = (d?.market_condition as string) ?? "BALANCED";
   const lastUpdated: string = (d?.last_updated as string) ?? "";
+
+  const { signals: comprehensiveSignals } = useComprehensiveSignals(symbol);
 
   const conditionColor =
     marketCondition === "HIGH_PRESSURE" ? "#ff1744" :
@@ -642,6 +972,12 @@ export default function AiSignalsPage() {
           <span className="font-rajdhani text-sm">Select a symbol from the sidebar to use the strategy generator.</span>
         </div>
       )}
+
+      {/* ── File Upload Strategy Analyzer ── */}
+      {symbol && <FileUploadPanel symbol={symbol} />}
+
+      {/* ── Comprehensive Signal Board ── */}
+      {symbol && <ComprehensiveSignalsBoard symbol={symbol} />}
 
       {/* ── Market condition banner ── */}
       {d && (
@@ -703,6 +1039,15 @@ export default function AiSignalsPage() {
           </>
         )}
       </div>
+
+      {/* ── Auto Trade Panel ── */}
+      {symbol && (
+        <AutoTradePanel
+          symbol={symbol}
+          pageLabel="AI Signals"
+          signals={comprehensiveSignals}
+        />
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
 import { Target, Crosshair, AlertCircle, ChevronDown } from "lucide-react";
+import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
 
 const DIGIT_COLORS: Record<number, string> = {
   0: "#00897b", 1: "#1e88e5", 2: "#8e24aa", 3: "#43a047", 4: "#fb8c00",
@@ -429,6 +430,28 @@ export default function MatchDifferPage() {
           )}
         </>
       )}
+
+      {/* Auto Trade Panel */}
+      <AutoTradePanel
+        symbol={symbol}
+        pageLabel="Match/Differ"
+        signals={[
+          ...(matchConf > 0 ? [{
+            contract_type: "DIGITMATCH",
+            confidence: matchConf,
+            ticks: 5,
+            digit: bestMatch,
+            label: `Match ${bestMatch}`,
+          } satisfies TradeSignal] : []),
+          ...(differConf > 0 ? [{
+            contract_type: "DIGITDIFF",
+            confidence: differConf,
+            ticks: 5,
+            digit: bestDiffer,
+            label: `Differ ${bestDiffer}`,
+          } satisfies TradeSignal] : []),
+        ]}
+      />
     </div>
   );
 }

@@ -1,6 +1,76 @@
 import { useState, useMemo } from "react";
 import { Calculator, TrendingUp, TrendingDown, AlertTriangle, Info } from "lucide-react";
 
+// ─── Martingale Calculator (styled to match design spec) ──────────────────────
+function MartingaleCalculator() {
+  const [capital, setCapital] = useState<string>("");
+  const num = parseFloat(capital) || 0;
+  const stake = parseFloat((num * 0.02).toFixed(2));
+  const takeProfit = parseFloat((stake * 5).toFixed(2));
+  const stopLoss = parseFloat((stake * 4).toFixed(2));
+
+  return (
+    <div
+      className="rounded-2xl p-6 space-y-4"
+      style={{ background: "linear-gradient(135deg,#0d1b2a 0%,#0a1520 100%)", border: "1.5px solid rgba(0,180,255,0.18)", boxShadow: "0 8px 40px rgba(0,120,200,0.15)" }}
+    >
+      <h2 className="text-center font-orbitron font-bold tracking-[0.25em] text-lg" style={{ color: "#00cfff", letterSpacing: "0.25em" }}>
+        MARTINGALE CALCULATOR
+      </h2>
+
+      {/* Capital input */}
+      <div className="flex items-center gap-3">
+        <label className="font-rajdhani text-sm font-bold whitespace-nowrap" style={{ color: "#b0c8e8", minWidth: "9rem" }}>
+          Initial Capital ($):
+        </label>
+        <input
+          type="number"
+          min={0}
+          step={10}
+          value={capital}
+          onChange={(e) => setCapital(e.target.value)}
+          placeholder="Enter capital"
+          className="flex-1 px-4 py-2.5 rounded-xl font-rajdhani text-sm text-center"
+          style={{
+            background: "rgba(0,150,255,0.07)",
+            border: "1.5px solid rgba(0,180,255,0.25)",
+            color: "#c8dff5",
+            outline: "none",
+          }}
+          onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(0,200,255,0.55)")}
+          onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(0,180,255,0.25)")}
+        />
+      </div>
+
+      {/* Output rows */}
+      {[
+        { label: "Stake (2% of Capital):", value: stake.toFixed(2), accent: "#00cfff" },
+        { label: "Take Profit (5× Stake):", value: takeProfit.toFixed(2), accent: "#00e5a0" },
+        { label: "Stop Loss (4 Losses Sum):", value: stopLoss.toFixed(2), accent: "#ff5c7c" },
+      ].map(({ label, value, accent }) => (
+        <div
+          key={label}
+          className="flex items-center justify-between px-5 py-3 rounded-xl"
+          style={{ background: "rgba(0,120,180,0.10)", border: "1px solid rgba(0,160,220,0.15)" }}
+        >
+          <span className="font-rajdhani text-sm font-semibold" style={{ color: "#8ab4d8" }}>{label}</span>
+          <span className="font-orbitron text-base font-bold" style={{ color: accent }}>
+            {num > 0 ? value : "0.00"}
+          </span>
+        </div>
+      ))}
+
+      {num > 0 && (
+        <div className="pt-1 space-y-1">
+          <p className="font-rajdhani text-[11px] text-center" style={{ color: "rgba(140,180,220,0.6)" }}>
+            Risk {((stopLoss / num) * 100).toFixed(1)}% of capital · Target +{((takeProfit / num) * 100).toFixed(1)}% of capital
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const CONTRACT_TYPES = [
   { id: "DIGITEVEN",  label: "Even",   payout: 95  },
   { id: "DIGITODD",   label: "Odd",    payout: 95  },
@@ -117,13 +187,16 @@ export default function RiskCalculatorPage() {
   const evIsPositive = calc.ev >= 0;
 
   return (
-    <div className="space-y-4 animate-fade-in-up max-w-4xl" data-testid="page-risk-calculator">
+    <div className="space-y-6 animate-fade-in-up max-w-4xl" data-testid="page-risk-calculator">
+
+      {/* Martingale Calculator (top section) */}
+      <MartingaleCalculator />
 
       {/* Header */}
       <div className="flex items-center gap-2">
         <Calculator size={20} className="text-primary" />
         <div>
-          <h2 className="font-orbitron text-lg font-bold text-primary tracking-wider">RISK CALCULATOR</h2>
+          <h2 className="font-orbitron text-lg font-bold text-primary tracking-wider">ADVANCED RISK CALCULATOR</h2>
           <p className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase">
             Expected Value · Kelly Criterion · Risk of Ruin
           </p>

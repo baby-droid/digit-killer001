@@ -4,6 +4,7 @@ import {
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
 import { TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown, AlertCircle } from "lucide-react";
+import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
 
 interface ContractSignal {
   contract_type: string;
@@ -232,6 +233,20 @@ export default function TickAnalyserPage() {
           ))}
         </div>
       )}
+
+      {/* Auto Trade Panel */}
+      <AutoTradePanel
+        symbol={symbol}
+        pageLabel="Tick Analyser"
+        signals={contracts
+          .filter((c) => ["Rise", "Fall", "Only Up", "Only Down"].includes(c.contract_type))
+          .map((c): TradeSignal => ({
+            contract_type: (c.contract_type === "Rise" || c.contract_type === "Only Up") ? "CALL" : "PUT",
+            confidence: c.confidence,
+            ticks: c.recommended_ticks,
+            label: c.contract_type,
+          }))}
+      />
     </div>
   );
 }
