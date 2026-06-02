@@ -591,11 +591,11 @@ function UserManagementPanel() {
     });
   };
   const handleDelete = (id: number) => {
-    deleteUser.mutate({ id: String(id) } as Parameters<typeof deleteUser.mutate>[0],
+    deleteUser.mutate({ id: String(id) } as unknown as Parameters<typeof deleteUser.mutate>[0],
       { onSuccess: () => qc.invalidateQueries({ queryKey: getGetUsersQueryKey() }) });
   };
   const handleRevoke = (id: number) => {
-    revokeUser.mutate({ id: String(id) } as Parameters<typeof revokeUser.mutate>[0],
+    revokeUser.mutate({ id: String(id) } as unknown as Parameters<typeof revokeUser.mutate>[0],
       { onSuccess: () => qc.invalidateQueries({ queryKey: getGetUsersQueryKey() }) });
   };
 
