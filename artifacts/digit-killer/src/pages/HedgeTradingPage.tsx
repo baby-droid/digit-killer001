@@ -696,26 +696,24 @@ export default function HedgeTradingPage() {
           </div>
         </div>
 
-        {/* Single market selector (when multi-scan is OFF) */}
-        {!multiScan && (
-          <div className="flex flex-wrap gap-1.5">
-            {HEDGE_MARKETS.map(({ key: k, label: l }) => (
-              <button key={k} onClick={() => { setHedgeSymbol(k); setAiLegA(null); setAiLegB(null); }}
-                className="px-2.5 py-1 rounded font-orbitron text-[9px] font-bold tracking-wider transition-all"
-                style={symbol === k
-                  ? { background: "#00e5ff", color: "#050a0f" }
-                  : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.55)" }}>
-                {l}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Single market selector — always visible */}
+        <div className="flex flex-wrap gap-1.5">
+          {HEDGE_MARKETS.map(({ key: k, label: l }) => (
+            <button key={k} onClick={() => { setHedgeSymbol(k); setAiLegA(null); setAiLegB(null); }}
+              className="px-2.5 py-1 rounded font-orbitron text-[9px] font-bold tracking-wider transition-all"
+              style={symbol === k
+                ? { background: "#00e5ff", color: "#050a0f" }
+                : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.55)" }}>
+              {l}
+            </button>
+          ))}
+        </div>
 
-        {/* Multi-select market picker (when multi-scan is ON) */}
+        {/* Multi-market scanner — additional panel when MULTI SCAN is ON */}
         {multiScan && (
-          <div className="space-y-2">
+          <div className="pt-2 border-t space-y-2" style={{ borderColor: "rgba(0,229,255,0.15)" }}>
             <div className="flex items-center gap-2">
-              <span className="font-rajdhani text-[9px] text-muted-foreground">Select markets to scan:</span>
+              <span className="font-rajdhani text-[9px] text-muted-foreground tracking-widest uppercase">Scanner markets:</span>
               <button onClick={() => setScanMarkets(HEDGE_MARKETS.slice(0, 5).map((m) => m.key))}
                 className="font-rajdhani text-[9px] text-primary hover:underline">Vol only</button>
               <button onClick={() => setScanMarkets(HEDGE_MARKETS.map((m) => m.key))}
