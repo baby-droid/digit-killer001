@@ -234,7 +234,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     }
     localStorage.removeItem("user_token");
     localStorage.removeItem("admin_token");
-    window.location.href = "/login";
+    localStorage.removeItem("deriv_token");
+    window.location.href = "/dashboard";
   };
 
   return (
