@@ -13,7 +13,7 @@ import {
   Shield, Users, Trash2, UserX, Copy, Check, RefreshCw, AlertCircle, KeyRound,
   Activity, Database, Clock, Wifi, WifiOff, Zap, CheckCircle, XCircle,
   Server, MemoryStick, Radio, RotateCcw, Play, ChevronDown, ChevronUp, Info,
-  Bot, Eye, Divide, Shuffle, BarChart2, TrendingUp, ArrowUpDown, LineChart, Calculator,
+  Bot, Eye, Divide, Shuffle, ArrowUpDown, Calculator,
 } from "lucide-react";
 
 interface User {
@@ -88,7 +88,7 @@ function LoginForm({ onSuccess }: { onSuccess: (token: string) => void }) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault(); setError("");
     adminLogin.mutate({ data: { password } }, {
-      onSuccess: (res) => { const r = res as { token: string }; onSuccess(r.token); },
+      onSuccess: (res: unknown) => { const r = res as { token: string }; onSuccess(r.token); },
       onError: () => setError("Invalid admin PIN"),
     });
   };
@@ -319,15 +319,15 @@ const PAGE_TESTS = [
   { name: "Health Check",           path: "/api/health",                                              icon: Activity,    page: "System" },
   { name: "Active Symbols",         path: "/api/active-symbols",                                      icon: Radio,       page: "System" },
   { name: "Wide Eye (R_50)",        path: "/api/wide-eye-analysis?symbol=R_50&count=200",             icon: Eye,         page: "Wide Eye" },
-  { name: "Over/Under (R_50)",      path: "/api/over-under-signals?symbol=R_50&count=200",            icon: TrendingUp,  page: "Over/Under" },
+  { name: "Over/Under (R_50)",      path: "/api/over-under-signals?symbol=R_50&count=200",            icon: ChevronUp,   page: "Over/Under" },
   { name: "Even/Odd (R_50)",        path: "/api/even-odd-analysis?symbol=R_50&count=200",             icon: Divide,      page: "Even/Odd" },
   { name: "Match/Differ (R_50)",    path: "/api/match-differ-signals?symbol=R_50",                    icon: Shuffle,     page: "Match/Differ" },
-  { name: "Tick Analyser (R_50)",   path: "/api/tick-contracts?symbol=R_50",                         icon: BarChart2,   page: "Tick Analyser" },
-  { name: "Rise/Fall (R_50)",       path: "/api/ai-signals?symbol=R_50",                             icon: TrendingUp,  page: "Rise/Fall" },
+  { name: "Tick Analyser (R_50)",   path: "/api/tick-contracts?symbol=R_50",                         icon: Activity,    page: "Tick Analyser" },
+  { name: "Rise/Fall (R_50)",       path: "/api/ai-signals?symbol=R_50",                             icon: ChevronDown, page: "Rise/Fall" },
   { name: "Only Up/Down (R_50)",    path: "/api/rise-fall-signals?symbol=R_50",                      icon: ArrowUpDown, page: "Only Up/Down" },
   { name: "AI Signals (R_50)",      path: "/api/ai-signals?symbol=R_50",                             icon: Zap,         page: "AI Signals" },
-  { name: "Digit Analysis (R_50)",  path: "/api/digit-analysis?symbol=R_50&count=200",               icon: BarChart2,   page: "Digit Analysis" },
-  { name: "Advanced Analysis",      path: "/api/advanced-analysis?symbol=R_50&count=200",            icon: LineChart,   page: "Reports" },
+  { name: "Digit Analysis (R_50)",  path: "/api/digit-analysis?symbol=R_50&count=200",               icon: Database,    page: "Digit Analysis" },
+  { name: "Advanced Analysis",      path: "/api/advanced-analysis?symbol=R_50&count=200",            icon: Server,      page: "Reports" },
   { name: "AI Trading (test)",      path: "/api/health",                                              icon: Bot,         page: "AI Trading" },
   { name: "Risk Calculator",        path: "/api/health",                                              icon: Calculator,  page: "Risk Calc" },
 ];
@@ -587,15 +587,15 @@ function UserManagementPanel() {
   const handleCreate = () => {
     if (!username.trim()) return;
     createUser.mutate({ data: { username: username.trim() } }, {
-      onSuccess: (res) => { setNewUser(res as User); setUsername(""); qc.invalidateQueries({ queryKey: getGetUsersQueryKey() }); },
+      onSuccess: (res: unknown) => { setNewUser(res as User); setUsername(""); qc.invalidateQueries({ queryKey: getGetUsersQueryKey() }); },
     });
   };
   const handleDelete = (id: number) => {
-    deleteUser.mutate({ id: String(id) } as Parameters<typeof deleteUser.mutate>[0],
+    deleteUser.mutate({ id: String(id) } as unknown as Parameters<typeof deleteUser.mutate>[0],
       { onSuccess: () => qc.invalidateQueries({ queryKey: getGetUsersQueryKey() }) });
   };
   const handleRevoke = (id: number) => {
-    revokeUser.mutate({ id: String(id) } as Parameters<typeof revokeUser.mutate>[0],
+    revokeUser.mutate({ id: String(id) } as unknown as Parameters<typeof revokeUser.mutate>[0],
       { onSuccess: () => qc.invalidateQueries({ queryKey: getGetUsersQueryKey() }) });
   };
 
@@ -683,8 +683,114 @@ function UserManagementPanel() {
   );
 }
 
+// ─── API Connection Guide ──────────────────────────────────────────────────────
+function ApiConnectionGuide() {
+  const steps = [
+    {
+      title: "Generate a Deriv API Token",
+      color: "#00e5ff",
+      steps: [
+        "Go to app.deriv.com → Accounts → API token",
+        "Click 'Create new token'",
+        "Enable: Read, Trade, Payments, Admin (all 4)",
+        "Copy the token — it only appears once",
+      ],
+    },
+    {
+      title: "Connect in Speed Lab or Hedge Trading",
+      color: "#22c55e",
+      steps: [
+        "Open Speed Lab or Hedge Trading page",
+        "Paste the token in the 'Deriv API Token' field",
+        "Click 'Connect' — status should show 'CONNECTED'",
+        "Your account balance will appear when connected",
+      ],
+    },
+    {
+      title: "Common Issues & Fixes",
+      color: "#facc15",
+      steps: [
+        "InvalidToken → Regenerate token with ALL permissions checked",
+        "Connecting then disconnecting → Token missing Trading permissions",
+        "Proposal errors → Ensure symbol is active on your Deriv account",
+        "Connection drops → Check internet, click Connect again to retry",
+      ],
+    },
+    {
+      title: "Token Permissions Checklist",
+      color: "#a78bfa",
+      steps: [
+        "✅ Read — required to see account info",
+        "✅ Trade — required to place contracts",
+        "✅ Payments — required for balance updates",
+        "✅ Admin — required for account switching",
+      ],
+    },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="cyber-card p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Wifi size={14} className="text-primary" />
+          <span className="font-orbitron text-xs font-bold tracking-widest text-primary uppercase">
+            Speed Lab & Hedge Trading — Connection Guide
+          </span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {steps.map((section) => (
+            <div key={section.title} className="rounded-xl p-3"
+              style={{ background: `${section.color}08`, border: `1px solid ${section.color}30` }}>
+              <div className="font-orbitron text-[10px] font-bold tracking-wider mb-2"
+                style={{ color: section.color }}>
+                {section.title}
+              </div>
+              <ul className="space-y-1.5">
+                {section.steps.map((s, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="font-orbitron text-[9px] font-bold mt-0.5 flex-shrink-0"
+                      style={{ color: section.color }}>{i + 1}.</span>
+                    <span className="font-rajdhani text-[11px] text-muted-foreground leading-tight">{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="cyber-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <AlertCircle size={13} className="text-yellow-400" />
+          <span className="font-orbitron text-[10px] font-bold tracking-widest uppercase text-yellow-400">
+            Error Code Reference
+          </span>
+        </div>
+        <div className="space-y-2">
+          {[
+            { code: "InvalidToken",          color: "#ef4444", fix: "Regenerate PAT with all 4 permissions. Old tokens expire or are revoked." },
+            { code: "AuthorizationRequired", color: "#f97316", fix: "Send the auth token first before making requests. Reconnect." },
+            { code: "RateLimit",             color: "#facc15", fix: "Too many requests. Wait 30s then reconnect." },
+            { code: "proxy_error",           color: "#a78bfa", fix: "Server cannot reach Deriv WS. Check API Server workflow is running." },
+            { code: "1006 Abnormal Close",   color: "#64748b", fix: "Network interruption. The proxy auto-reconnects; if it fails, click Connect." },
+          ].map(({ code, color, fix }) => (
+            <div key={code} className="flex items-start gap-3 px-3 py-2 rounded-lg"
+              style={{ background: "rgba(255,255,255,0.025)" }}>
+              <code className="font-orbitron text-[9px] font-bold flex-shrink-0 mt-0.5 px-1.5 py-0.5 rounded"
+                style={{ background: `${color}18`, color, border: `1px solid ${color}40` }}>
+                {code}
+              </code>
+              <span className="font-rajdhani text-[11px] text-muted-foreground leading-tight">{fix}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Admin Panel with tabs ────────────────────────────────────────────────────
-type Tab = "health" | "troubleshoot" | "diagnostics" | "policy" | "users" | "pin" | "commission";
+type Tab = "health" | "troubleshoot" | "diagnostics" | "policy" | "users" | "pin" | "api-guide";
 
 function AdminPanel() {
   const [tab, setTab] = useState<Tab>("health");
@@ -692,11 +798,11 @@ function AdminPanel() {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "health",       label: "System Health",    icon: <Activity size={12} /> },
     { id: "troubleshoot", label: "Troubleshoot",     icon: <Wifi size={12} /> },
+    { id: "api-guide",    label: "API Connection",   icon: <Shield size={12} /> },
     { id: "diagnostics",  label: "Diagnostics",      icon: <Server size={12} /> },
     { id: "policy",       label: "Storage Policy",   icon: <Database size={12} /> },
     { id: "users",        label: "Users",            icon: <Users size={12} /> },
     { id: "pin",          label: "Admin PIN",        icon: <KeyRound size={12} /> },
-    { id: "commission",   label: "Commission",       icon: <TrendingUp size={12} /> },
   ];
 
   return (
@@ -716,207 +822,11 @@ function AdminPanel() {
 
       {tab === "health"       && <SystemHealthPanel />}
       {tab === "troubleshoot" && <PageTroubleshooter />}
+      {tab === "api-guide"    && <ApiConnectionGuide />}
       {tab === "diagnostics"  && <FullDiagnosticsPanel />}
       {tab === "policy"       && <StoragePolicyPanel />}
       {tab === "users"        && <UserManagementPanel />}
       {tab === "pin"          && <ChangePinSection />}
-      {tab === "commission"   && <CommissionPanel />}
-    </div>
-  );
-}
-
-// ─── Commission Panel ─────────────────────────────────────────────────────────
-interface CommissionStats {
-  total_trades: number;
-  total_commission_usd: number;
-  total_volume_usd: number;
-  by_contract_type: Array<{ type: string; count: number; commission: number; volume: number }>;
-  by_symbol: Array<{ symbol: string; count: number; commission: number }>;
-  by_day: Array<{ day: string; count: number; commission: number }>;
-  recent_trades: Array<{
-    id: string; symbol: string; contract_type: string;
-    stake: number; buy_price: number; payout: number; markup_pct: number;
-    commission_usd: number; timestamp: string;
-  }>;
-}
-
-function CommissionPanel() {
-  const [data, setData]         = useState<CommissionStats | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState("");
-  const [clearing, setClearing] = useState(false);
-
-  const adminToken = typeof window !== "undefined" ? localStorage.getItem("admin_token") ?? "" : "";
-
-  const load = useCallback(async () => {
-    setLoading(true); setError("");
-    try {
-      const r = await fetch("/api/admin/commissions", { headers: { Authorization: `Bearer ${adminToken}` } });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setData(await r.json());
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [adminToken]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  async function clearCommissions() {
-    if (!confirm("Clear all commission records? This cannot be undone.")) return;
-    setClearing(true);
-    try {
-      await fetch("/api/admin/commissions", { method: "DELETE", headers: { Authorization: `Bearer ${adminToken}` } });
-      await load();
-    } catch {}
-    setClearing(false);
-  }
-
-  if (loading) return (
-    <div className="cyber-card p-6 flex items-center gap-3">
-      <RefreshCw size={14} className="animate-spin text-muted-foreground" />
-      <span className="font-rajdhani text-sm text-muted-foreground">Loading commission data…</span>
-    </div>
-  );
-
-  if (error) return (
-    <div className="cyber-card p-4 flex items-center gap-3">
-      <AlertCircle size={14} className="text-red-400" />
-      <span className="font-rajdhani text-sm text-red-400">Error: {error}</span>
-      <button onClick={() => void load()} className="ml-auto font-rajdhani text-xs text-primary underline">Retry</button>
-    </div>
-  );
-
-  if (!data) return null;
-
-  const maxTypeComm = Math.max(...data.by_contract_type.map((v) => v.commission), 0.0001);
-  const maxSymComm  = Math.max(...data.by_symbol.map((v) => v.commission), 0.0001);
-
-  return (
-    <div className="space-y-4">
-      {/* ── Summary cards ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {[
-          { label: "Total Trades",      value: String(data.total_trades),                    color: "#00e5ff" },
-          { label: "Total Volume",      value: `$${data.total_volume_usd.toFixed(2)}`,        color: "#facc15" },
-          { label: "Total Commission",  value: `$${data.total_commission_usd.toFixed(4)}`,    color: "#22c55e" },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="cyber-card p-4">
-            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase">{label}</div>
-            <div className="font-orbitron text-lg font-black mt-1" style={{ color }}>{value}</div>
-          </div>
-        ))}
-      </div>
-
-      {data.total_trades === 0 && (
-        <div className="cyber-card p-6 text-center">
-          <TrendingUp size={28} className="mx-auto text-muted-foreground mb-2 opacity-30" />
-          <div className="font-rajdhani text-sm text-muted-foreground">No trades recorded yet.</div>
-          <div className="font-rajdhani text-[10px] text-muted-foreground mt-1">Commission is tracked automatically whenever a trade is placed from any trading page.</div>
-        </div>
-      )}
-
-      {data.total_trades > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* ── By contract type ──────────────────────────────────────────── */}
-          {data.by_contract_type.length > 0 && (
-            <div className="cyber-card p-4">
-              <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-3 flex items-center gap-2">
-                <BarChart2 size={11} className="text-primary" /> By Contract Type
-              </div>
-              <div className="space-y-2">
-                {data.by_contract_type.map((row) => (
-                  <div key={row.type}>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="font-orbitron text-[10px] font-bold text-foreground">{row.type}</span>
-                      <div className="flex items-center gap-3 font-rajdhani text-[10px] text-muted-foreground">
-                        <span>{row.count} trades</span>
-                        <span className="text-green-400 font-bold">${row.commission.toFixed(4)}</span>
-                      </div>
-                    </div>
-                    <div className="h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
-                      <div className="h-full rounded-full transition-all" style={{ width: `${(row.commission / maxTypeComm) * 100}%`, background: "rgba(0,229,255,0.7)" }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── By symbol ──────────────────────────────────────────────────── */}
-          {data.by_symbol.length > 0 && (
-            <div className="cyber-card p-4">
-              <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-3 flex items-center gap-2">
-                <LineChart size={11} className="text-primary" /> By Symbol
-              </div>
-              <div className="space-y-2">
-                {data.by_symbol.slice(0, 8).map((row) => (
-                  <div key={row.symbol}>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="font-orbitron text-[10px] font-bold text-foreground">{row.symbol}</span>
-                      <div className="flex items-center gap-3 font-rajdhani text-[10px] text-muted-foreground">
-                        <span>{row.count} trades</span>
-                        <span className="text-green-400 font-bold">${row.commission.toFixed(4)}</span>
-                      </div>
-                    </div>
-                    <div className="h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
-                      <div className="h-full rounded-full transition-all" style={{ width: `${(row.commission / maxSymComm) * 100}%`, background: "rgba(34,197,94,0.7)" }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Recent trades ─────────────────────────────────────────────── */}
-      {data.recent_trades.length > 0 && (
-        <div className="cyber-card p-4">
-          <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-3 flex items-center gap-2">
-            <Clock size={11} className="text-primary" /> Recent Trades (last {data.recent_trades.length})
-          </div>
-          <div className="space-y-1 max-h-64 overflow-y-auto">
-            {data.recent_trades.map((t) => (
-              <div key={t.id} className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs"
-                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                <div className="flex flex-col min-w-0 flex-1">
-                  <span className="font-orbitron text-[10px] font-bold truncate text-foreground">
-                    {t.symbol} · {t.contract_type}
-                  </span>
-                  <span className="font-rajdhani text-[9px] text-muted-foreground">
-                    {new Date(t.timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <div className="font-rajdhani text-[10px] text-muted-foreground">buy ${t.buy_price.toFixed(2)} · {t.markup_pct}%</div>
-                  <div className="font-orbitron text-[10px] font-bold text-green-400">+${t.commission_usd.toFixed(4)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Actions ──────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <button onClick={() => void load()} disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-rajdhani text-xs font-bold transition-all"
-          style={{ background: "rgba(0,229,255,0.1)", border: "1px solid rgba(0,229,255,0.3)", color: "#00e5ff" }}>
-          <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> Refresh
-        </button>
-        {data.total_trades > 0 && (
-          <button onClick={() => void clearCommissions()} disabled={clearing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-rajdhani text-xs font-bold transition-all"
-            style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444" }}>
-            <Trash2 size={11} /> {clearing ? "Clearing…" : "Clear Records"}
-          </button>
-        )}
-        <span className="font-rajdhani text-[10px] text-muted-foreground ml-auto">
-          Commission ≈ stake × markup% (4% default) · Resets on server restart
-        </span>
-      </div>
     </div>
   );
 }

@@ -201,9 +201,13 @@ router.get("/over-under-signals", async (req, res): Promise<void> => {
       };
     });
 
-    // Top-level best-entry psychology
-    const bestEntryDir = raw.recommendation === "OVER" ? "DIGITOVER" : "DIGITUNDER";
-    const bestBarrier  = raw.recommendation === "OVER" ? raw.best_over_barrier : raw.best_under_barrier;
+    // Top-level best-entry psychology — use best_over/best_under from actual return shape
+    type OUEntry = { entry_digit?: number; confidence?: number } | null;
+    const rawTyped = raw as { best_over?: OUEntry; best_under?: OUEntry };
+    const overConf  = rawTyped.best_over?.confidence ?? 0;
+    const underConf = rawTyped.best_under?.confidence ?? 0;
+    const bestEntryDir = overConf >= underConf ? "DIGITOVER" : "DIGITUNDER";
+    const bestBarrier  = bestEntryDir === "DIGITOVER" ? rawTyped.best_over?.entry_digit : rawTyped.best_under?.entry_digit;
     const overallPsych = computeDigitPsychology(prices, pipSize, bestEntryDir, bestBarrier as number | undefined);
 
     res.json({

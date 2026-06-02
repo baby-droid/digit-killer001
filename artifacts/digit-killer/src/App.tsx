@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,7 +7,6 @@ import { SymbolProvider } from "@/context/SymbolContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { DerivProvider } from "@/context/DerivContext";
 import Layout from "@/components/Layout";
-import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
 import WideEyePage from "@/pages/WideEyePage";
 import OverUnderPage from "@/pages/OverUnderPage";
@@ -35,51 +34,33 @@ const queryClient = new QueryClient({
   },
 });
 
-function isAuthenticated(): boolean {
-  return (
-    !!localStorage.getItem("user_token") ||
-    !!localStorage.getItem("admin_token")
-  );
-}
-
-/** Wraps a page with Layout; redirects to /login if not authenticated. */
-function Protected({ children }: { children: React.ReactNode }) {
-  const [, navigate] = useLocation();
-  useEffect(() => {
-    if (!isAuthenticated()) navigate("/login");
-  });
-  if (!isAuthenticated()) return null;
-  return <Layout>{children}</Layout>;
-}
-
 function Router() {
   return (
     <Switch>
-      {/* Public routes */}
-      <Route path="/" component={LoginPage} />
-      <Route path="/login" component={LoginPage} />
-      {/* Deriv OAuth callback — public, no auth required */}
+      <Route path="/">
+        <Layout><DashboardPage /></Layout>
+      </Route>
+      <Route path="/dashboard">
+        <Layout><DashboardPage /></Layout>
+      </Route>
       <Route path="/auth/callback" component={DerivCallbackPage} />
-
-      {/* Protected routes */}
-      <Route path="/dashboard"><Protected><DashboardPage /></Protected></Route>
-      <Route path="/wide-eye"><Protected><WideEyePage /></Protected></Route>
-      <Route path="/over-under"><Protected><OverUnderPage /></Protected></Route>
-      <Route path="/even-odd"><Protected><EvenOddPage /></Protected></Route>
-      <Route path="/match-differ"><Protected><MatchDifferPage /></Protected></Route>
-      <Route path="/tick-analyser"><Protected><TickAnalyserPage /></Protected></Route>
-      <Route path="/rise-fall"><Protected><RiseFallPage /></Protected></Route>
-      <Route path="/only-up-down"><Protected><OnlyUpDownPage /></Protected></Route>
-      <Route path="/high-low-tick"><Protected><HighLowTickPage /></Protected></Route>
-      <Route path="/ai-signals"><Protected><AiSignalsPage /></Protected></Route>
-      <Route path="/ai-trading"><Protected><AiTradingPage /></Protected></Route>
-      <Route path="/deriv-trader"><Protected><DerivTraderPage /></Protected></Route>
-      <Route path="/hedge-trading"><Protected><HedgeTradingPage /></Protected></Route>
-      <Route path="/speed-lab"><Protected><SpeedLabPage /></Protected></Route>
-      <Route path="/risk-calculator"><Protected><RiskCalculatorPage /></Protected></Route>
-      <Route path="/reports"><Protected><ReportsPage /></Protected></Route>
-      <Route path="/teaching"><Protected><TeachingPage /></Protected></Route>
-      <Route path="/settings"><Protected><SettingsPage /></Protected></Route>
+      <Route path="/wide-eye"><Layout><WideEyePage /></Layout></Route>
+      <Route path="/over-under"><Layout><OverUnderPage /></Layout></Route>
+      <Route path="/even-odd"><Layout><EvenOddPage /></Layout></Route>
+      <Route path="/match-differ"><Layout><MatchDifferPage /></Layout></Route>
+      <Route path="/tick-analyser"><Layout><TickAnalyserPage /></Layout></Route>
+      <Route path="/rise-fall"><Layout><RiseFallPage /></Layout></Route>
+      <Route path="/only-up-down"><Layout><OnlyUpDownPage /></Layout></Route>
+      <Route path="/high-low-tick"><Layout><HighLowTickPage /></Layout></Route>
+      <Route path="/ai-signals"><Layout><AiSignalsPage /></Layout></Route>
+      <Route path="/ai-trading"><Layout><AiTradingPage /></Layout></Route>
+      <Route path="/deriv-trader"><Layout><DerivTraderPage /></Layout></Route>
+      <Route path="/hedge-trading"><Layout><HedgeTradingPage /></Layout></Route>
+      <Route path="/speed-lab"><Layout><SpeedLabPage /></Layout></Route>
+      <Route path="/risk-calculator"><Layout><RiskCalculatorPage /></Layout></Route>
+      <Route path="/reports"><Layout><ReportsPage /></Layout></Route>
+      <Route path="/teaching"><Layout><TeachingPage /></Layout></Route>
+      <Route path="/settings"><Layout><SettingsPage /></Layout></Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -95,8 +76,6 @@ function App() {
       <ThemeProvider>
         <TooltipProvider>
           <SymbolProvider>
-            {/* DerivProvider wraps the whole app so ONE WebSocket connection
-                is shared across all pages — no re-auth when navigating */}
             <DerivProvider>
               <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
                 <Router />

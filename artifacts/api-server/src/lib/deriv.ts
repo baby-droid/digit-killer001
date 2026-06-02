@@ -6,7 +6,10 @@ import {
   getSymbolPipSize,
 } from "./tickStream";
 
-const DERIV_WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089";
+const DERIV_WS_URLS = [
+  "wss://ws.binaryws.com/websockets/v3?app_id=1089",   // legacy (primary)
+  "wss://api.derivws.com/trading/v1/options/ws/public", // beta public (fallback)
+];
 
 interface DerivMessage {
   msg_type: string;
@@ -39,13 +42,24 @@ const tickCache = new Map<string, number[]>();
 const CACHE_TTL = 1500; // 1.5 seconds — keep fresh for real-time feel
 const cacheTimestamps = new Map<string, number>();
 
-function createWsConnection(): Promise<WebSocket> {
+function createWsConnection(urlIndex = 0): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(DERIV_WS_URL);
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("WebSocket connection timeout"));
-    }, 15000);
+    const url = DERIV_WS_URLS[urlIndex];
+    if (!url) { reject(new Error("No Deriv WebSocket URLs available")); return; }
+    const ws = new WebSocket(url);
+
+    const tryFallback = (err: Error) => {
+      ws.removeAllListeners();
+      try { ws.close(); } catch {}
+      if (urlIndex + 1 < DERIV_WS_URLS.length) {
+        logger.warn({ url, urlIndex }, "Deriv WS connection failed, trying fallback URL");
+        createWsConnection(urlIndex + 1).then(resolve).catch(reject);
+      } else {
+        reject(err);
+      }
+    };
+
+    const timeout = setTimeout(() => tryFallback(new Error("WebSocket connection timeout")), 10000);
 
     ws.on("open", () => {
       clearTimeout(timeout);
@@ -54,7 +68,7 @@ function createWsConnection(): Promise<WebSocket> {
 
     ws.on("error", (err) => {
       clearTimeout(timeout);
-      reject(err);
+      tryFallback(err instanceof Error ? err : new Error(String(err)));
     });
   });
 }

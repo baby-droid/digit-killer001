@@ -1,12 +1,13 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20"]
+[agent]
+expertMode = true
+stack = "BEST_EFFORT_FALLBACK"
 
-[deployment]
-router = "application"
-deploymentTarget = "autoscale"
+[userenv]
 
-[deployment.postBuild]
-args = ["pnpm", "store", "prune"]
-env = { "CI" = "true" }
+[userenv.shared]
+PORT = "5000"
+BASE_PATH = "/"
 
 [workflows]
 runButton = "Project"
@@ -18,23 +19,11 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Start application"
+args = "API Server"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "API Server"
-
-[[workflows.workflow]]
-name = "Start application"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PORT=19514 BASE_PATH=/ pnpm --filter @workspace/digit-killer run dev"
-waitForPort = 19514
+args = "Start application"
 
 [[workflows.workflow]]
 name = "API Server"
@@ -48,13 +37,21 @@ waitForPort = 8080
 [workflows.workflow.metadata]
 outputType = "console"
 
-[agent]
-stack = "BEST_EFFORT_FALLBACK"
-expertMode = true
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
 
-[postMerge]
-path = "scripts/post-merge.sh"
-timeoutMs = 20000
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=5000 pnpm --filter @workspace/digit-killer run dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
 
 [[ports]]
 localPort = 8080
@@ -70,3 +67,6 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+
+[deployment]
+deploymentTarget = "cloudrun"
