@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSymbol } from "@/context/SymbolContext";
 import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Brain, Activity } from "lucide-react";
+import AutoTradePanel from "@/components/AutoTradePanel";
 
 interface MarkovState {
   current_state: string;
@@ -257,6 +258,16 @@ export default function RiseFallPage() {
             <div className="relative"><SignalCard data={data.rise_fall.rise} type="rise" /></div>
             <div className="relative"><SignalCard data={data.rise_fall.fall} type="fall" /></div>
           </div>
+
+          {/* Auto Trade */}
+          <AutoTradePanel
+            symbol={symbol}
+            pageLabel="Rise / Fall"
+            signals={[
+              { label: "Rise (CALL)", contract_type: "CALL", confidence: data.rise_fall.rise.confidence, ticks: data.rise_fall.rise.duration },
+              { label: "Fall (PUT)",  contract_type: "PUT",  confidence: data.rise_fall.fall.confidence, ticks: data.rise_fall.fall.duration },
+            ]}
+          />
 
           <div className="text-center">
             <p className="font-rajdhani text-[10px] text-muted-foreground tracking-widest">

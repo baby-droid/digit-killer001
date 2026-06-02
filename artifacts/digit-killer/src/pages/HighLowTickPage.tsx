@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSymbol } from "@/context/SymbolContext";
 import { ArrowUpDown, RefreshCw, AlertCircle, Brain, TrendingUp, TrendingDown } from "lucide-react";
+import AutoTradePanel from "@/components/AutoTradePanel";
 
 interface TickFreq { tick: number; count: number; pct: number }
 interface TickSig { signal: string; confidence: number; tick_position: number; frequency_pct: number; reasons: string[] }
@@ -340,6 +341,16 @@ export default function HighLowTickPage() {
             <SignalCard data={hlt.high_tick} type="high" />
             <SignalCard data={hlt.low_tick} type="low" />
           </div>
+
+          {/* Auto Trade */}
+          <AutoTradePanel
+            symbol={symbol}
+            pageLabel="High / Low Tick"
+            signals={[
+              { label: "High Tick", contract_type: "HIGHERTICK", confidence: hlt.high_tick.confidence, ticks: 5, barrier: hlt.best_high_tick },
+              { label: "Low Tick",  contract_type: "LOWERTICK",  confidence: hlt.low_tick.confidence,  ticks: 5, barrier: hlt.best_low_tick  },
+            ]}
+          />
 
           {/* Markov + autocorr summary */}
           <div className="cyber-card p-4">

@@ -143,12 +143,10 @@ function useDerivWS(token: string | null) {
       setTimeout(()=>{ listeners.current.delete(id); reject(new Error("timeout")); },20000);
     }),[]);
 
-  const connect = useCallback((t:string) => {
-    ws.current?.close();
-    setStatus("connecting"); setError(null);
-    const url = t.startsWith("pat_") ? DERIV_WS_BETA : DERIV_WS_LEGACY;
+  const connectToUrl = useCallback((url:string, t:string, fallback?:string) => {
     const socket = new WebSocket(url);
     ws.current = socket;
+    let authorized = false;
     socket.onopen = () => { setStatus("authorizing"); socket.send(JSON.stringify({ authorize:t, req_id:reqId.current++ })); };
     socket.onmessage = (e) => {
       try {
@@ -156,20 +154,38 @@ function useDerivWS(token: string | null) {
         const id = msg.req_id as number;
         if (listeners.current.has(id)) { listeners.current.get(id)!(msg); listeners.current.delete(id); }
         if (msg.msg_type === "authorize") {
+          authorized = true;
           const auth = msg.authorize as Record<string,unknown>;
           setAccount({ loginid:auth.loginid as string, currency:auth.currency as string, balance:auth.balance as number, is_virtual:(auth.is_virtual as number)===1 });
           setBalance(auth.balance as number);
-          setStatus("connected");
+          setStatus("connected"); setError(null);
           setAccountList((auth.account_list as AccountItem[]) ?? []);
           socket.send(JSON.stringify({ balance:1,subscribe:1,req_id:reqId.current++ }));
         }
         if (msg.msg_type === "balance") setBalance(((msg.balance as Record<string,unknown>).balance) as number);
-        if (msg.msg_type === "error" || msg.error) { setError((msg.error as Record<string,string>)?.message??"Error"); setStatus("disconnected"); }
+        if ((msg.msg_type === "error" || msg.error) && !authorized) {
+          if (fallback) { socket.close(); connectToUrl(fallback, t); }
+          else { setError((msg.error as Record<string,string>)?.message??"Auth failed"); setStatus("disconnected"); }
+        }
       } catch {}
     };
-    socket.onclose = () => { setStatus("disconnected"); setAccount(null); setBalance(null); };
-    socket.onerror = () => { setError("Connection failed"); setStatus("disconnected"); };
+    socket.onclose = () => {
+      if (!authorized) {
+        if (fallback) { connectToUrl(fallback, t); return; }
+      }
+      setStatus("disconnected"); setAccount(null); setBalance(null);
+    };
+    socket.onerror = () => {
+      if (!authorized && fallback) { connectToUrl(fallback, t); }
+      else { setError("Connection failed"); setStatus("disconnected"); }
+    };
   },[]);
+
+  const connect = useCallback((t:string) => {
+    ws.current?.close();
+    setStatus("connecting"); setError(null);
+    connectToUrl(DERIV_WS_BETA, t, DERIV_WS_LEGACY);
+  },[connectToUrl]);
 
   const disconnect = useCallback(() => { ws.current?.close(); ws.current=null; setStatus("disconnected"); setAccount(null); setBalance(null); setError(null); },[]);
   useEffect(()=>()=>{ ws.current?.close(); },[]);
@@ -315,25 +331,66 @@ export default function DerivTraderPage() {
   const selectedStat = statsMap.get(symbol) ?? groupStats[0];
   const derivWS = useDerivWS(null);
 
-  // AI signal fetch
+  // Comprehensive signal fetch — all types from all endpoints, ≥87% confidence
+  const MIN_CONF = 87;
   useEffect(()=>{
-    const fetch_=()=>fetch(`/api/ai-signals?symbol=${encodeURIComponent(symbol)}`)
-      .then((r)=>r.json()).then((d:Record<string,unknown>)=>{
-        const sigs=(d.signals as Array<AiSignal&{reasoning?:string}>|undefined)??[];
-        if (sigs.length) { const best=sigs.sort((a,b)=>b.confidence-a.confidence)[0]; setAiSignal({...best,reason:best.reason??best.reasoning??""}); }
-      }).catch(()=>{});
-    fetch_();
-    const t=setInterval(fetch_,7000);
+    const fetchAll=()=>{
+      const sym = encodeURIComponent(symbol);
+      Promise.all([
+        fetch(`/api/ai-signals?symbol=${sym}`).then(r=>r.json()).catch(()=>({})),
+        fetch(`/api/over-under-signals?symbol=${sym}`).then(r=>r.json()).catch(()=>({})),
+        fetch(`/api/even-odd-analysis?symbol=${sym}`).then(r=>r.json()).catch(()=>({})),
+        fetch(`/api/tick-contracts?symbol=${sym}`).then(r=>r.json()).catch(()=>({})),
+        fetch(`/api/match-differ-signals?symbol=${sym}`).then(r=>r.json()).catch(()=>({})),
+      ]).then(([ai, ou, eo, tc, md])=>{
+        const all:AiSignal[]=[];
+        // AI signals
+        const aiSigs=(ai.signals as Array<AiSignal&{reasoning?:string}>|undefined)??[];
+        aiSigs.forEach(s=>all.push({...s,reason:s.reason??s.reasoning??""}));
+        // Over/Under
+        type OUSig={contract_type:string;direction:string;confidence:number;ticks?:number;barrier?:number;reason?:string};
+        const ouSigs=(ou.signals as OUSig[]|undefined)??[];
+        ouSigs.forEach(s=>all.push({contract_type:s.contract_type??((s.direction==="OVER")?"DIGITOVER":"DIGITUNDER"),direction:s.direction,ticks:s.ticks??5,confidence:s.confidence,barrier:s.barrier,reason:s.reason??"Over/Under signal"}));
+        // Even/Odd
+        if (eo.recommendation) {
+          const eRec=eo as {recommendation?:string;even_pct?:number;odd_pct?:number;confidence?:number};
+          const ct=(eRec.recommendation==="EVEN")?"DIGITEVEN":"DIGITODD";
+          const conf=Math.max(eRec.even_pct??0,eRec.odd_pct??0);
+          all.push({contract_type:ct,direction:eRec.recommendation??"",ticks:5,confidence:conf,reason:"Even/Odd signal"});
+        }
+        // Tick contracts (Rise/Fall)
+        type TCSig={signal?:string;contract_type?:string;confidence?:number;duration?:number;direction?:string;reason?:string};
+        const rfSigs=(tc.signals as TCSig[]|undefined)??[];
+        rfSigs.forEach(s=>all.push({contract_type:s.contract_type??((s.direction==="RISE"||s.signal==="RISE")?"CALL":"PUT"),direction:s.direction??s.signal??"",ticks:s.duration??5,confidence:s.confidence??0,reason:s.reason??"Rise/Fall signal"}));
+        // Match/Differ
+        type MDSig={contract_type?:string;digit?:number;confidence?:number;direction?:string;reason?:string;ticks?:number};
+        const mdSigs=(md.signals as MDSig[]|undefined)??[];
+        mdSigs.forEach(s=>all.push({contract_type:s.contract_type??"DIGITMATCH",direction:s.direction??"",ticks:s.ticks??5,confidence:s.confidence??0,digit:s.digit,reason:s.reason??"Match/Differ signal"}));
+        // Pick best signal ≥87%
+        const qualified=all.filter(s=>s.confidence>=MIN_CONF).sort((a,b)=>b.confidence-a.confidence);
+        if (qualified.length>0) setAiSignal(qualified[0]);
+        else setAiSignal(all.sort((a,b)=>b.confidence-a.confidence)[0]??null);
+      });
+    };
+    fetchAll();
+    const t=setInterval(fetchAll,3000);
     return ()=>clearInterval(t);
   },[symbol]);
 
-  // Auto-trade trigger
+  // Auto-trade: instant trigger — fires immediately when a new ≥87% signal arrives
+  const lastAutoSigRef = useRef("");
   useEffect(()=>{
     if (!autoTrade||derivWS.status!=="connected"||trading||tradingBlocked) return;
-    const delay=1500+Math.random()*2000;
-    const t=setTimeout(()=>{ void executeTrade(); },delay);
-    return ()=>clearTimeout(t);
-  },[autoTrade,derivWS.status,trading]);
+    if (!aiSignal||aiSignal.confidence<MIN_CONF) return;
+    const sigKey=`${aiSignal.contract_type}-${aiSignal.confidence.toFixed(1)}`;
+    if (sigKey===lastAutoSigRef.current) return;
+    lastAutoSigRef.current=sigKey;
+    // Apply signal params then execute immediately
+    if (aiSignal.barrier!=null) setBarrier(aiSignal.barrier);
+    if (aiSignal.digit!=null) setTargetDigit(aiSignal.digit);
+    setContractType(aiSignal.contract_type);
+    void executeTrade();
+  },[autoTrade,derivWS.status,trading,aiSignal,tradingBlocked]);
 
   const currentStake = martingaleOn ? Math.min(stake*Math.pow(martMult,lossStreak),stake*32) : stake;
   const tpHit = tpEnabled && sessionPL >= tpAmount;

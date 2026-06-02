@@ -37,7 +37,7 @@ interface Account {
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DERIV_WS_LEGACY = "wss://ws.binaryws.com/websockets/v3?app_id=1089";
 const DERIV_WS_BETA   = "wss://ws.derivws.com/websockets/v3?app_id=1089";
-const MIN_CONFIDENCE  = 85;
+const MIN_CONFIDENCE  = 87;
 
 const CONTRACT_LABELS: Record<string, string> = {
   DIGITEVEN: "Even", DIGITODD: "Odd", DIGITOVER: "Over", DIGITUNDER: "Under",
@@ -54,8 +54,6 @@ function useDerivWS() {
   const [balance, setBalance] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const getUrl = (t: string) => t.startsWith("pat_") ? DERIV_WS_BETA : DERIV_WS_LEGACY;
-
   const request = useCallback((msg: Record<string, unknown>): Promise<Record<string, unknown>> =>
     new Promise((resolve, reject) => {
       if (ws.current?.readyState !== WebSocket.OPEN) {
@@ -70,16 +68,13 @@ function useDerivWS() {
       setTimeout(() => { listeners.current.delete(id); reject(new Error("timeout")); }, 20000);
     }), []);
 
-  const connect = useCallback((token: string) => {
-    const t = token.trim();
-    if (!t) return;
-    ws.current?.close();
-    setStatus("connecting"); setError(null);
-    const socket = new WebSocket(getUrl(t));
+  const connectToUrl = useCallback((url: string, token: string, fallbackUrl?: string) => {
+    const socket = new WebSocket(url);
     ws.current = socket;
+    let authorized = false;
     socket.onopen = () => {
       setStatus("authorizing");
-      socket.send(JSON.stringify({ authorize: t, req_id: reqId.current++ }));
+      socket.send(JSON.stringify({ authorize: token, req_id: reqId.current++ }));
     };
     socket.onmessage = (e) => {
       try {
@@ -90,6 +85,7 @@ function useDerivWS() {
           listeners.current.get(id)!(msg); listeners.current.delete(id);
         }
         if (type === "authorize") {
+          authorized = true;
           const auth = msg.authorize as Record<string, unknown>;
           setAccount({
             loginid: auth.loginid as string,
@@ -99,18 +95,42 @@ function useDerivWS() {
           });
           setBalance(auth.balance as number);
           setStatus("connected");
+          setError(null);
           socket.send(JSON.stringify({ balance: 1, subscribe: 1, req_id: reqId.current++ }));
         }
         if (type === "balance") setBalance(((msg.balance as Record<string, unknown>).balance) as number);
-        if (type === "error" || msg.error) {
-          setError((msg.error as Record<string, string>)?.message ?? "Error");
-          setStatus("disconnected");
+        if ((type === "error" || msg.error) && !authorized) {
+          const errMsg = (msg.error as Record<string, string>)?.message ?? "Auth error";
+          if (fallbackUrl) {
+            socket.close();
+            connectToUrl(fallbackUrl, token);
+          } else {
+            setError(errMsg); setStatus("disconnected");
+          }
         }
       } catch {}
     };
-    socket.onclose = () => { setStatus("disconnected"); setAccount(null); setBalance(null); };
-    socket.onerror = () => { setError("WebSocket error"); setStatus("disconnected"); };
+    socket.onclose = () => {
+      if (!authorized) {
+        if (fallbackUrl) { connectToUrl(fallbackUrl, token); return; }
+        setStatus("disconnected"); setAccount(null); setBalance(null);
+      } else {
+        setStatus("disconnected"); setAccount(null); setBalance(null);
+      }
+    };
+    socket.onerror = () => {
+      if (!authorized && fallbackUrl) { connectToUrl(fallbackUrl, token); }
+      else { setError("WebSocket error"); setStatus("disconnected"); }
+    };
   }, []);
+
+  const connect = useCallback((token: string) => {
+    const t = token.trim();
+    if (!t) return;
+    ws.current?.close();
+    setStatus("connecting"); setError(null);
+    connectToUrl(DERIV_WS_BETA, t, DERIV_WS_LEGACY);
+  }, [connectToUrl]);
 
   const disconnect = useCallback(() => {
     ws.current?.close(); ws.current = null;
@@ -199,8 +219,12 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
         currency: deriv.account?.currency ?? "USD",
         duration: sig.ticks, duration_unit: "t", symbol,
       };
-      if (sig.barrier !== undefined) proposal.barrier = String(sig.barrier);
-      if (sig.digit   !== undefined) proposal.barrier = String(sig.digit);
+      if (sig.contract_type === "HIGHERTICK" || sig.contract_type === "LOWERTICK") {
+        proposal.selected_tick = sig.barrier ?? 3;
+      } else {
+        if (sig.barrier !== undefined) proposal.barrier = String(sig.barrier);
+        if (sig.digit   !== undefined) proposal.barrier = String(sig.digit);
+      }
 
       const propResp = await deriv.request(proposal);
       const prop = propResp.proposal as Record<string, unknown>;
@@ -260,11 +284,14 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
     setBulkExecuting(false);
   }
 
-  // Auto-trade: fire best signal when ready
+  // Auto-trade: fire immediately when a new qualifying signal appears (near-instant execution)
+  const lastAutoSigRef = useRef("");
   useEffect(() => {
     if (!autoMode || !bestSignal || deriv.status !== "connected" || executing || blocked) return;
-    const t = setTimeout(() => { void handleExecuteBest(); }, 2000 + Math.random() * 2000);
-    return () => clearTimeout(t);
+    const sigKey = `${bestSignal.contract_type}-${bestSignal.confidence.toFixed(1)}-${bestSignal.label}`;
+    if (sigKey === lastAutoSigRef.current) return;
+    lastAutoSigRef.current = sigKey;
+    void handleExecuteBest();
   }, [autoMode, bestSignal, deriv.status, executing, blocked]);
 
   if (!open) {
