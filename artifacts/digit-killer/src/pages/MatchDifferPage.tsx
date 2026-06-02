@@ -162,11 +162,11 @@ export default function MatchDifferPage() {
   const liveTick = useLiveTick(symbol);
 
   const { data, isLoading } = useGetMatchDifferSignals(
-    { symbol },
+    { symbol, count: tickCount } as Parameters<typeof useGetMatchDifferSignals>[0],
     {
       query: {
         enabled: !!symbol,
-        queryKey: getGetMatchDifferSignalsQueryKey({ symbol }),
+        queryKey: [...getGetMatchDifferSignalsQueryKey({ symbol }), tickCount],
         refetchInterval: 2000,
       },
     }

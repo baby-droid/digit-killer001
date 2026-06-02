@@ -180,7 +180,7 @@ function useDerivWS(token: string | null) {
 function FloatingDigitCircles({ digitFreq, tickCount, currentDigit }: {
   digitFreq:number[]; tickCount:number; currentDigit:number;
 }) {
-  const total = tickCount || 1;
+  const total = digitFreq.reduce((s, v) => s + v, 0) || tickCount || 1;
   const pcts = Array.from({ length:10 },(_,i) => (digitFreq[i]??0)/total*100);
   const mostFreq = pcts.indexOf(Math.max(...pcts));
   const leastFreq = pcts.indexOf(Math.min(...pcts));
