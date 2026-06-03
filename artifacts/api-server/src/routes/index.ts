@@ -8,6 +8,7 @@ import liveRouter from "./live";
 import academyRouter from "./academy";
 import derivOauthRouter from "./deriv-oauth";
 import legacyTokenRouter from "./legacy-token";
+import patTokenRouter from "./pat-token";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(liveRouter);
 router.use(academyRouter);
 router.use(derivOauthRouter);
 router.use(legacyTokenRouter);
+router.use(patTokenRouter);
 
 export default router;

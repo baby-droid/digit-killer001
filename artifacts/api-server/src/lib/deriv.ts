@@ -6,10 +6,8 @@ import {
   getSymbolPipSize,
 } from "./tickStream";
 
-const DERIV_WS_URLS = [
-  "wss://ws.binaryws.com/websockets/v3?app_id=1089",   // legacy (primary)
-  "wss://api.derivws.com/trading/v1/options/ws/public", // beta public (fallback)
-];
+const DERIV_WS_PRIMARY = "wss://ws.binaryws.com/websockets/v3?app_id=1089";
+const DERIV_WS_ALT     = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 
 interface DerivMessage {
   msg_type: string;
@@ -37,175 +35,241 @@ interface ActiveSymbol {
   pip_size: number;
 }
 
-// Cache for tick history per symbol
-const tickCache = new Map<string, number[]>();
-const CACHE_TTL = 1500; // 1.5 seconds — keep fresh for real-time feel
-const cacheTimestamps = new Map<string, number>();
+// ─── Persistent connection pool ───────────────────────────────────────────────
+// Keeps N ready-to-use connections open so one-shot requests (active_symbols,
+// ticks_history) don't pay a fresh TCP+TLS+WS handshake every call.
 
-function createWsConnection(urlIndex = 0): Promise<WebSocket> {
+const POOL_SIZE = 3;
+const POOL_PING_MS = 20_000;
+
+interface PoolConn {
+  ws: WebSocket;
+  ready: boolean;
+  pingTimer?: ReturnType<typeof setInterval>;
+}
+
+const pool: PoolConn[] = [];
+
+function spawnPoolConn(): void {
+  const entry: PoolConn = { ws: new WebSocket(DERIV_WS_PRIMARY), ready: false };
+  pool.push(entry);
+
+  entry.ws.on("open", () => {
+    entry.ready = true;
+    entry.pingTimer = setInterval(() => {
+      if (entry.ws.readyState === WebSocket.OPEN) entry.ws.ping();
+    }, POOL_PING_MS);
+    logger.debug("Deriv pool: connection ready");
+  });
+
+  const recycle = () => {
+    entry.ready = false;
+    if (entry.pingTimer) clearInterval(entry.pingTimer);
+    const idx = pool.indexOf(entry);
+    if (idx >= 0) pool.splice(idx, 1);
+    // Reconnect after a short delay
+    setTimeout(spawnPoolConn, 2500);
+  };
+
+  entry.ws.on("close", recycle);
+  entry.ws.on("error", () => {
+    try { entry.ws.terminate(); } catch {}
+    recycle();
+  });
+}
+
+// Initialise pool on module load
+for (let i = 0; i < POOL_SIZE; i++) spawnPoolConn();
+
+function getPoolConn(): WebSocket | null {
+  const conn = pool.find((c) => c.ready && c.ws.readyState === WebSocket.OPEN);
+  return conn?.ws ?? null;
+}
+
+// ─── One-shot fallback (when pool is not ready yet) ───────────────────────────
+
+function createFreshConnection(): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const url = DERIV_WS_URLS[urlIndex];
-    if (!url) { reject(new Error("No Deriv WebSocket URLs available")); return; }
-    const ws = new WebSocket(url);
-
-    const tryFallback = (err: Error) => {
+    const ws = new WebSocket(DERIV_WS_PRIMARY);
+    const timeout = setTimeout(() => {
       ws.removeAllListeners();
       try { ws.close(); } catch {}
-      if (urlIndex + 1 < DERIV_WS_URLS.length) {
-        logger.warn({ url, urlIndex }, "Deriv WS connection failed, trying fallback URL");
-        createWsConnection(urlIndex + 1).then(resolve).catch(reject);
-      } else {
-        reject(err);
-      }
-    };
+      // Try alt URL
+      const ws2 = new WebSocket(DERIV_WS_ALT);
+      const t2 = setTimeout(() => {
+        ws2.removeAllListeners();
+        try { ws2.close(); } catch {}
+        reject(new Error("Deriv WebSocket connection timeout"));
+      }, 6_000);
+      ws2.on("open", () => { clearTimeout(t2); resolve(ws2); });
+      ws2.on("error", (e) => { clearTimeout(t2); reject(e); });
+    }, 5_000);
 
-    const timeout = setTimeout(() => tryFallback(new Error("WebSocket connection timeout")), 10000);
-
-    ws.on("open", () => {
-      clearTimeout(timeout);
-      resolve(ws);
-    });
-
-    ws.on("error", (err) => {
-      clearTimeout(timeout);
-      tryFallback(err instanceof Error ? err : new Error(String(err)));
-    });
+    ws.on("open", () => { clearTimeout(timeout); resolve(ws); });
+    ws.on("error", (e) => { clearTimeout(timeout); reject(e); });
   });
 }
 
-async function sendAndReceive(ws: WebSocket, request: object): Promise<DerivMessage> {
-  return new Promise((resolve, reject) => {
-    const reqId = Date.now();
-    const reqWithId = { ...request, req_id: reqId };
-    const timeout = setTimeout(() => reject(new Error("Request timeout")), 15000);
+// ─── sendAndReceive ───────────────────────────────────────────────────────────
 
-    const handler = (data: WebSocket.Data) => {
-      try {
-        const msg: DerivMessage = JSON.parse(data.toString());
-        if ((msg as Record<string, unknown>).req_id === reqId) {
-          clearTimeout(timeout);
-          ws.off("message", handler);
-          if ((msg as Record<string, unknown>).error) {
-            reject(new Error(String(((msg as Record<string, unknown>).error as Record<string, unknown>)?.message || "API error")));
-          } else {
-            resolve(msg);
+async function sendAndReceive(request: object): Promise<DerivMessage> {
+  const reqId = Date.now() + Math.floor(Math.random() * 1000);
+  const reqWithId = { ...request, req_id: reqId };
+
+  // Prefer a pool connection (no handshake cost)
+  const poolWs = getPoolConn();
+  if (poolWs) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        poolWs.off("message", handler);
+        reject(new Error("Deriv request timeout"));
+      }, 12_000);
+
+      const handler = (data: WebSocket.Data) => {
+        try {
+          const msg = JSON.parse(data.toString()) as DerivMessage & Record<string, unknown>;
+          if (msg.req_id === reqId) {
+            clearTimeout(timeout);
+            poolWs.off("message", handler);
+            if (msg.error) {
+              reject(new Error(String((msg.error as Record<string, unknown>)?.message ?? "API error")));
+            } else {
+              resolve(msg);
+            }
           }
-        }
-      } catch {
-        // ignore parse errors for other messages
-      }
-    };
+        } catch { /* ignore */ }
+      };
 
-    ws.on("message", handler);
-    ws.send(JSON.stringify(reqWithId));
-  });
-}
+      poolWs.on("message", handler);
+      poolWs.send(JSON.stringify(reqWithId));
+    });
+  }
 
-export async function fetchActiveSymbols(): Promise<ActiveSymbol[]> {
+  // Fall back: open a fresh connection (first startup, pool not warm yet)
   let ws: WebSocket | null = null;
   try {
-    ws = await createWsConnection();
-    const response = await sendAndReceive(ws, { active_symbols: "brief" });
-    const symbols = (response.active_symbols as ActiveSymbol[]) || [];
-    return symbols.map((s) => ({
-      symbol: s.symbol,
-      display_name: s.display_name,
-      market: s.market,
-      submarket: s.submarket,
-      is_open: s.is_open ?? 1,
-      pip_size: s.pip_size ?? 2,
-    }));
+    ws = await createFreshConnection();
+    return await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        ws!.off("message", handler);
+        reject(new Error("Deriv request timeout"));
+      }, 12_000);
+
+      const handler = (data: WebSocket.Data) => {
+        try {
+          const msg = JSON.parse(data.toString()) as DerivMessage & Record<string, unknown>;
+          if (msg.req_id === reqId) {
+            clearTimeout(timeout);
+            ws!.off("message", handler);
+            if (msg.error) {
+              reject(new Error(String((msg.error as Record<string, unknown>)?.message ?? "API error")));
+            } else {
+              resolve(msg);
+            }
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws!.on("message", handler);
+      ws!.send(JSON.stringify(reqWithId));
+    });
   } finally {
     ws?.close();
   }
 }
 
+// ─── Exported API functions ───────────────────────────────────────────────────
+
+// Cache active symbols — they rarely change
+let activeSymbolsCache: ActiveSymbol[] | null = null;
+let activeSymbolsCacheTs = 0;
+const ACTIVE_SYMBOLS_TTL = 30_000; // 30 s
+
+export async function fetchActiveSymbols(): Promise<ActiveSymbol[]> {
+  const now = Date.now();
+  if (activeSymbolsCache && now - activeSymbolsCacheTs < ACTIVE_SYMBOLS_TTL) {
+    return activeSymbolsCache;
+  }
+
+  const response = await sendAndReceive({ active_symbols: "brief" });
+  const symbols = (response.active_symbols as ActiveSymbol[]) ?? [];
+  const result = symbols.map((s) => ({
+    symbol:       s.symbol,
+    display_name: s.display_name,
+    market:       s.market,
+    submarket:    s.submarket,
+    is_open:      s.is_open ?? 1,
+    pip_size:     s.pip_size ?? 2,
+  }));
+
+  activeSymbolsCache   = result;
+  activeSymbolsCacheTs = now;
+  return result;
+}
+
+const tickCache       = new Map<string, number[]>();
+const cacheTimestamps = new Map<string, number>();
+const CACHE_TTL       = 1500;
+
 export async function fetchTickHistory(symbol: string, count: number = 1000): Promise<number[]> {
-  // Kick off a live subscription so future calls are instant
   ensureSubscribed(symbol);
 
-  // If the stream buffer already has enough data, serve it instantly
   const streamData = getStreamBuffer(symbol, count);
   if (streamData && streamData.length >= Math.min(count, 20)) {
     return streamData;
   }
 
-  // Fall back to on-demand WebSocket request (first-load or uncommon symbol)
   const cacheKey = `${symbol}_${count}`;
   const now = Date.now();
   const cached = tickCache.get(cacheKey);
   const ts = cacheTimestamps.get(cacheKey) ?? 0;
 
-  if (cached && now - ts < CACHE_TTL) {
-    return cached;
-  }
+  if (cached && now - ts < CACHE_TTL) return cached;
 
-  let ws: WebSocket | null = null;
-  try {
-    ws = await createWsConnection();
-    const response = await sendAndReceive(ws, {
-      ticks_history: symbol,
-      end: "latest",
-      count,
-      style: "ticks",
-    });
+  const response = await sendAndReceive({
+    ticks_history: symbol,
+    end:   "latest",
+    count,
+    style: "ticks",
+  });
 
-    const history = response.history as HistoryResponse;
-    const prices = history?.prices ?? [];
+  const history = response.history as HistoryResponse;
+  const prices  = history?.prices ?? [];
 
-    tickCache.set(cacheKey, prices);
-    cacheTimestamps.set(cacheKey, now);
-    return prices;
-  } finally {
-    ws?.close();
-  }
+  tickCache.set(cacheKey, prices);
+  cacheTimestamps.set(cacheKey, now);
+  return prices;
 }
 
 export async function fetchLatestTick(symbol: string): Promise<TickData | null> {
-  let ws: WebSocket | null = null;
-  try {
-    ws = await createWsConnection();
-    const response = await sendAndReceive(ws, {
-      ticks_history: symbol,
-      end: "latest",
-      count: 1,
-      style: "ticks",
-    });
+  const response = await sendAndReceive({
+    ticks_history: symbol,
+    end:   "latest",
+    count: 1,
+    style: "ticks",
+  });
 
-    const history = response.history as HistoryResponse;
-    const prices = history?.prices ?? [];
-    const times = history?.times ?? [];
+  const history = response.history as HistoryResponse;
+  const prices  = history?.prices ?? [];
+  const times   = history?.times  ?? [];
 
-    if (prices.length === 0) return null;
+  if (prices.length === 0) return null;
 
-    const pipSize = getSymbolPipSize(symbol);
-    return {
-      epoch: times[times.length - 1] ?? Date.now() / 1000,
-      quote: prices[prices.length - 1],
-      symbol,
-      pip_size: pipSize,
-    };
-  } finally {
-    ws?.close();
-  }
+  const pipSize = getSymbolPipSize(symbol);
+  return {
+    epoch:    times[times.length - 1] ?? Date.now() / 1000,
+    quote:    prices[prices.length - 1],
+    symbol,
+    pip_size: pipSize,
+  };
 }
 
-/**
- * Extract the last digit of a price using the correct pip_size.
- * pip_size comes from the live Deriv tick stream (authoritative) via
- * getSymbolPipSize(), so this will always match what Deriv.com shows.
- */
 export function extractLastDigit(price: number, pipSize: number): number {
   const factor = Math.pow(10, pipSize);
   const intPart = Math.round(price * factor);
   return Math.abs(intPart) % 10;
 }
 
-/**
- * Returns the pip_size for a symbol.
- * Uses the live value from Deriv tick messages (set by tickStream.ts),
- * falling back to the static table if the symbol hasn't ticked yet.
- */
 export function getDigitPipSize(symbol: string): number {
   return getSymbolPipSize(symbol);
 }
@@ -232,23 +296,14 @@ export function analyseDigits(prices: number[], pipSize: number = 2): Array<{
     color: "",
   }));
 
-  // Rank: 1 = highest
   const sorted = [...digits].sort((a, b) => b.percentage - a.percentage);
-  sorted.forEach((d, i) => {
-    d.rank = i + 1;
-  });
+  sorted.forEach((d, i) => { d.rank = i + 1; });
 
-  // Assign colors based on rank
   const colorMap: Record<number, string> = {
-    1: "green",
-    2: "blue",
-    9: "red",
-    10: "yellow",
+    1: "green", 2: "blue", 9: "red", 10: "yellow",
   };
 
-  digits.forEach((d) => {
-    d.color = colorMap[d.rank] ?? "grey";
-  });
+  digits.forEach((d) => { d.color = colorMap[d.rank] ?? "grey"; });
 
   return digits;
 }
