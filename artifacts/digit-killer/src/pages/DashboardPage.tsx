@@ -5,7 +5,7 @@ import {
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
 import { useDerivContext } from "@/context/DerivContext";
-import { TrendingUp, Activity, Hash, Wifi, ExternalLink } from "lucide-react";
+import { TrendingUp, Activity, Hash, Wifi, ExternalLink, Globe } from "lucide-react";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 const DIGIT_COLORS: Record<number, string> = {
@@ -60,7 +60,8 @@ export default function DashboardPage() {
 
   const [prevDigit,   setPrevDigit  ] = useState<number | null>(null);
   const [flipKey,     setFlipKey    ] = useState(0);
-  const [tokenInput,  setTokenInput ] = useState("");
+  const [tokenInput,   setTokenInput  ] = useState("");
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   const { data } = useGetDigitAnalysis(
     { symbol },
@@ -98,6 +99,18 @@ export default function DashboardPage() {
     localStorage.setItem("deriv_token", t);
     deriv.connect(t);
     setTokenInput("");
+  }
+
+  async function handleOAuthRedirect() {
+    setOauthLoading(true);
+    try {
+      const res = await fetch("/api/deriv/oauth/login-url");
+      const data = await res.json() as { url?: string };
+      if (data.url) { window.location.href = data.url; return; }
+    } catch { /* fallback below */ }
+    const redirectUri = encodeURIComponent(`${window.location.origin}/callback`);
+    window.location.href = `https://oauth.deriv.com/oauth2/authorize?app_id=1089&redirect_uri=${redirectUri}`;
+    setOauthLoading(false);
   }
 
   const isConnected   = deriv.status === "connected";
@@ -158,6 +171,21 @@ export default function DashboardPage() {
                 className="flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-primary transition-colors">
                 <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
               </a>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                <span className="font-rajdhani text-[9px] text-muted-foreground">OR</span>
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+              </div>
+              <button
+                onClick={() => void handleOAuthRedirect()}
+                disabled={oauthLoading}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border disabled:opacity-40"
+                style={{ background: "rgba(233,30,140,0.08)", borderColor: "rgba(233,30,140,0.35)", color: "#e91e8c" }}
+              >
+                {oauthLoading
+                  ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Redirecting…</>
+                  : <><Globe size={12} /> Login with Deriv Account →</>}
+              </button>
             </div>
           </div>
         </div>

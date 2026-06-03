@@ -12,7 +12,7 @@ import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import {
   Wifi, Loader, DollarSign, User, ChevronDown,
-  RotateCcw, LogIn, LogOut, AlertCircle, ExternalLink,
+  RotateCcw, LogIn, LogOut, AlertCircle, ExternalLink, Globe,
 } from "lucide-react";
 import { useDerivContext } from "@/context/DerivContext";
 
@@ -24,11 +24,12 @@ export default function DerivConnectionBar() {
   const deriv = useDerivContext();
   const [location] = useLocation();
 
-  const [tokenInput,  setTokenInput] = useState(() => localStorage.getItem("deriv_token") ?? "");
-  const [showConnect, setShowConnect] = useState(false);
-  const [showAccts,   setShowAccts  ] = useState(false);
-  const [demoMsg,     setDemoMsg    ] = useState<string | null>(null);
-  const [resetting,   setResetting  ] = useState(false);
+  const [tokenInput,   setTokenInput  ] = useState(() => localStorage.getItem("deriv_token") ?? "");
+  const [showConnect,  setShowConnect ] = useState(false);
+  const [showAccts,    setShowAccts   ] = useState(false);
+  const [demoMsg,      setDemoMsg     ] = useState<string | null>(null);
+  const [resetting,    setResetting   ] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   const onDashboard = isDashboard(location);
 
@@ -55,6 +56,18 @@ export default function DerivConnectionBar() {
     localStorage.setItem("deriv_token", t);
     deriv.connect(t);
     setShowConnect(false);
+  }
+
+  async function handleOAuthRedirect() {
+    setOauthLoading(true);
+    try {
+      const res = await fetch("/api/deriv/oauth/login-url");
+      const data = await res.json() as { url?: string };
+      if (data.url) { window.location.href = data.url; return; }
+    } catch { /* fallback below */ }
+    const redirectUri = encodeURIComponent(`${window.location.origin}/callback`);
+    window.location.href = `https://oauth.deriv.com/oauth2/authorize?app_id=1089&redirect_uri=${redirectUri}`;
+    setOauthLoading(false);
   }
 
   function handleDisconnect() {
@@ -150,6 +163,21 @@ export default function DerivConnectionBar() {
               >
                 <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
               </a>
+              <div className="flex items-center gap-2 my-1">
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                <span className="font-rajdhani text-[9px] text-muted-foreground">OR</span>
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+              </div>
+              <button
+                onClick={() => void handleOAuthRedirect()}
+                disabled={oauthLoading}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border disabled:opacity-40"
+                style={{ background: "rgba(233,30,140,0.08)", borderColor: "rgba(233,30,140,0.35)", color: "#e91e8c" }}
+              >
+                {oauthLoading
+                  ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Redirecting…</>
+                  : <><Globe size={12} /> Login with Deriv Account →</>}
+              </button>
             </div>
           </div>
         )}

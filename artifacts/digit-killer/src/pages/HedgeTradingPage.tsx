@@ -189,32 +189,58 @@ function LegCard({
         </div>
       </div>
 
-      {/* Barrier picker — shown only for Over / Under contracts */}
+      {/* Over / Under direction + Barrier — shown for O/U contracts */}
       {(leg.contract.contract_type === "DIGITOVER" || leg.contract.contract_type === "DIGITUNDER") && (
-        <div>
-          <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1.5">
-            Barrier · <span style={{ color }} className="font-orbitron">{leg.contract.barrier ?? 4}</span>
+        <>
+          {/* Direction dropdown */}
+          <div>
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1.5">
+              Direction
+            </div>
+            <div className="flex gap-1.5">
+              {(["DIGITOVER", "DIGITUNDER"] as const).map((dir) => (
+                <button key={dir}
+                  onClick={() => onChange({ contract: {
+                    ...leg.contract,
+                    contract_type: dir,
+                    label: `${dir === "DIGITOVER" ? "Over" : "Under"} ${leg.contract.barrier ?? 4}`,
+                  } })}
+                  className="flex-1 px-2.5 py-1.5 rounded font-orbitron text-[10px] font-bold transition-all"
+                  style={leg.contract.contract_type === dir
+                    ? { background: color, color: "#050a0f" }
+                    : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#aaa" }}>
+                  {dir === "DIGITOVER" ? "▲ Over" : "▼ Under"}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {(leg.contract.contract_type === "DIGITOVER"
-              ? [0, 1, 2, 3, 4, 5, 6, 7, 8]
-              : [1, 2, 3, 4, 5, 6, 7, 8, 9]
-            ).map((v) => (
-              <button key={v}
-                onClick={() => onChange({ contract: {
-                  ...leg.contract,
-                  barrier: v,
-                  label: `${leg.contract.contract_type === "DIGITOVER" ? "Over" : "Under"} ${v}`,
-                } })}
-                className="px-2 py-1 rounded font-orbitron text-[10px] font-bold transition-all"
-                style={leg.contract.barrier === v
-                  ? { background: color, color: "#050a0f" }
-                  : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#aaa" }}>
-                {v}
-              </button>
-            ))}
+
+          {/* Barrier picker */}
+          <div>
+            <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1.5">
+              Barrier · <span style={{ color }} className="font-orbitron">{leg.contract.barrier ?? 4}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {(leg.contract.contract_type === "DIGITOVER"
+                ? [0, 1, 2, 3, 4, 5, 6, 7, 8]
+                : [1, 2, 3, 4, 5, 6, 7, 8, 9]
+              ).map((v) => (
+                <button key={v}
+                  onClick={() => onChange({ contract: {
+                    ...leg.contract,
+                    barrier: v,
+                    label: `${leg.contract.contract_type === "DIGITOVER" ? "Over" : "Under"} ${v}`,
+                  } })}
+                  className="px-2 py-1 rounded font-orbitron text-[10px] font-bold transition-all"
+                  style={leg.contract.barrier === v
+                    ? { background: color, color: "#050a0f" }
+                    : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#aaa" }}>
+                  {v}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Ticks */}

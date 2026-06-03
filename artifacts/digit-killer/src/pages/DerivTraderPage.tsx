@@ -84,7 +84,9 @@ function useMultiSymbolFeed(symbols: typeof TRACKED_SYMBOLS, activeGroup: string
             setStats((prev) => {
               const next = new Map(prev);
               const existing = next.get(key);
-              if (!existing || existing.tickCount < 50) {
+              // Always seed from 1000-tick history — gives instant full display (not gradual fill)
+              // Only skip if live SSE has already accumulated more than the history provided
+              if (!existing || existing.tickCount < total) {
                 next.set(key, { key, label, group: grp, price: existing?.price ?? 0,
                   digit: existing?.digit ?? 0, digitFreq: freq, tickCount: total, lastUpdate: Date.now() });
               }
@@ -125,59 +127,78 @@ function useMultiSymbolFeed(symbols: typeof TRACKED_SYMBOLS, activeGroup: string
 function FloatingDigitCircles({ digitFreq, tickCount, currentDigit }: {
   digitFreq:number[]; tickCount:number; currentDigit:number;
 }) {
-  const total = digitFreq.reduce((s, v) => s + v, 0) || tickCount || 1;
-  const pcts = Array.from({ length:10 },(_,i) => (digitFreq[i]??0)/total*100);
-  const mostFreq = pcts.indexOf(Math.max(...pcts));
-  const leastFreq = pcts.indexOf(Math.min(...pcts));
+  const rawTotal = digitFreq.reduce((s, v) => s + v, 0) || tickCount || 1;
+  const rawPcts  = Array.from({ length:10 }, (_, i) => (digitFreq[i] ?? 0) / rawTotal * 100);
+  // Normalize so 0–9 always sums to exactly 100%
+  const pctSum   = rawPcts.reduce((s, v) => s + v, 0) || 100;
+  const pcts     = rawPcts.map((p) => (p / pctSum) * 100);
+
+  // Rank all 10 digits by percentage
+  const ranked   = [...pcts.map((p, i) => ({ i, p }))].sort((a, b) => b.p - a.p);
+  const idxMost       = ranked[0].i;  // green
+  const idx2ndMost    = ranked[1].i;  // blue
+  const idx2ndLeast   = ranked[8].i;  // yellow
+  const idxLeast      = ranked[9].i;  // red
+
+  const getArcColor = (d: number) => {
+    if (d === idxMost)     return "#22c55e"; // green  — highest
+    if (d === idxLeast)    return "#ef4444"; // red    — lowest
+    if (d === idx2ndMost)  return "#3b82f6"; // blue   — 2nd highest
+    if (d === idx2ndLeast) return "#facc15"; // yellow — 2nd lowest
+    if (d === currentDigit) return "#ff1e9e"; // pink  — current
+    return "rgba(255,255,255,0.3)";
+  };
+
   const R = 26; const CX = 32; const CY = 32;
-  const circ = 2*Math.PI*R;
+  const circ = 2 * Math.PI * R;
+
   return (
     <div className="flex justify-between items-end px-1 py-2">
-      {Array.from({ length:10 },(_,d) => {
-        const pct = pcts[d];
+      {Array.from({ length: 10 }, (_, d) => {
+        const pct       = pcts[d];
         const isCurrent = d === currentDigit;
-        const isMost    = d === mostFreq;
-        const isLeast   = d === leastFreq;
-        const filled    = circ * (pct/100);
-        const color     = isMost ? "#22c55e" : isLeast ? "#ef4444" : isCurrent ? "#ff1e9e" : "rgba(255,255,255,0.35)";
-        // Arc-tip cursor: pink dot at END of filled arc (Deriv.com accurate style)
+        const filled    = circ * (pct / 100);
+        const arcColor  = getArcColor(d);
         const tipAngle  = -Math.PI / 2 + (pct / 100) * 2 * Math.PI;
         const tipX      = CX + R * Math.cos(tipAngle);
         const tipY      = CY + R * Math.sin(tipAngle);
         return (
-          <div key={d} className="flex flex-col items-center" style={{ minWidth:0 }}>
-            <svg viewBox="0 0 64 64" style={{ width:"clamp(40px,5.5vw,58px)", height:"clamp(40px,5.5vw,58px)",
-              filter: isCurrent ? `drop-shadow(0 0 10px #ff1e9e)` : undefined }}>
-              <circle cx={CX} cy={CY} r={R} fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)" strokeWidth={3}/>
-              <circle cx={CX} cy={CY} r={R} fill="none" stroke={color}
+          <div key={d} className="flex flex-col items-center" style={{ minWidth: 0 }}>
+            <svg viewBox="0 0 64 64" style={{
+              width: "clamp(40px,5.5vw,58px)", height: "clamp(40px,5.5vw,58px)",
+              filter: isCurrent ? "drop-shadow(0 0 10px #ff1e9e)" : undefined,
+            }}>
+              {/* Track ring */}
+              <circle cx={CX} cy={CY} r={R} fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)" strokeWidth={3} />
+              {/* Filled arc */}
+              <circle cx={CX} cy={CY} r={R} fill="none" stroke={arcColor}
                 strokeWidth={isCurrent ? 7 : 5} strokeLinecap="round"
-                strokeDasharray={`${filled} ${circ-filled}`}
+                strokeDasharray={`${filled} ${circ - filled}`}
                 transform={`rotate(-90 ${CX} ${CY})`}
-                style={{ transition:"stroke-dasharray 0.5s ease" }}/>
-              <text x={CX} y={CY+1} textAnchor="middle" dominantBaseline="middle"
-                fill={isCurrent?"#fff":"rgba(255,255,255,0.8)"}
-                fontFamily="Orbitron,monospace" fontWeight={isCurrent?"900":"700"}
-                fontSize={isCurrent?14:12}>
+                style={{ transition: "stroke-dasharray 0.5s ease, stroke 0.3s ease" }} />
+              {/* Digit label */}
+              <text x={CX} y={CY + 1} textAnchor="middle" dominantBaseline="middle"
+                fill={isCurrent ? "#fff" : "rgba(255,255,255,0.85)"}
+                fontFamily="Orbitron,monospace"
+                fontWeight={isCurrent ? "900" : "700"}
+                fontSize={isCurrent ? 14 : 12}>
                 {d}
               </text>
-              {/* Accurate arc-tip cursor dot on circumference (Deriv.com style) */}
+              {/* Arc-tip cursor dot */}
               {isCurrent && (
                 <circle cx={tipX} cy={tipY} r={4.5} fill="#ff1e9e"
-                  style={{ filter:"drop-shadow(0 0 5px #ff1e9e)", transition:"cx 0.5s ease,cy 0.5s ease" }}/>
+                  style={{ filter: "drop-shadow(0 0 5px #ff1e9e)", transition: "cx 0.5s,cy 0.5s" }} />
               )}
-              {isMost && !isCurrent && (
-                <circle cx={tipX} cy={tipY} r={3} fill="#22c55e" opacity={0.85}/>
-              )}
-              {isLeast && !isCurrent && (
-                <circle cx={tipX} cy={tipY} r={3} fill="#ef4444" opacity={0.85}/>
+              {d !== currentDigit && (d === idxMost || d === idxLeast || d === idx2ndMost || d === idx2ndLeast) && (
+                <circle cx={tipX} cy={tipY} r={3} fill={arcColor} opacity={0.85} />
               )}
             </svg>
+            {/* Percentage label */}
             <div className="font-orbitron text-center font-bold mt-0.5"
-              style={{ fontSize:"clamp(7px,1vw,10px)",
-                color: isMost?"#22c55e":isLeast?"#ef4444":isCurrent?"#ff1e9e":"rgba(255,255,255,0.4)" }}>
+              style={{ fontSize: "clamp(7px,1vw,10px)", color: arcColor }}>
               {pct.toFixed(1)}%
             </div>
-            <div style={{ height:9 }}/>
+            <div style={{ height: 9 }} />
           </div>
         );
       })}
@@ -575,10 +596,12 @@ export default function DerivTraderPage() {
                 digitFreq={selectedStat.digitFreq}
                 tickCount={selectedStat.tickCount}
                 currentDigit={selectedStat.digit}/>
-              <div className="flex items-center justify-center gap-4 mt-2 text-[9px] font-rajdhani text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-center gap-3 mt-2 text-[9px] font-rajdhani text-muted-foreground">
                 <div className="flex items-center gap-1.5"><div style={{ width:8,height:8,borderRadius:"50%",background:"#22c55e" }}/> Highest</div>
+                <div className="flex items-center gap-1.5"><div style={{ width:8,height:8,borderRadius:"50%",background:"#3b82f6" }}/> 2nd Highest</div>
+                <div className="flex items-center gap-1.5"><div style={{ width:8,height:8,borderRadius:"50%",background:"#facc15" }}/> 2nd Lowest</div>
                 <div className="flex items-center gap-1.5"><div style={{ width:8,height:8,borderRadius:"50%",background:"#ef4444" }}/> Lowest</div>
-                <div className="flex items-center gap-1.5"><svg width={8} height={6} viewBox="0 0 8 6"><polygon points="4,0 8,6 0,6" fill="#ff1e9e"/></svg> Current (pink cursor)</div>
+                <div className="flex items-center gap-1.5"><svg width={8} height={6} viewBox="0 0 8 6"><polygon points="4,0 8,6 0,6" fill="#ff1e9e"/></svg> Current</div>
               </div>
             </div>
           )}
