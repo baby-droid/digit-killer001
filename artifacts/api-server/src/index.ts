@@ -18,6 +18,20 @@ if (Number.isNaN(port) || port <= 0) {
 const server = http.createServer(app);
 attachWsProxy(server);
 
+// Handle port-already-in-use gracefully: another instance (e.g. the deployment
+// workflow) is already running — exit cleanly so the workflow does not show FAILED.
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    logger.warn(
+      { port },
+      "Port already in use — another instance is running on this port. Exiting cleanly.",
+    );
+    process.exit(0);
+  }
+  logger.error({ err: err.message, code: err.code }, "Server fatal error");
+  process.exit(1);
+});
+
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
 });

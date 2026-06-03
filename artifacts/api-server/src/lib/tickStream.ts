@@ -16,6 +16,11 @@ const DERIV_WS_URLS = [
 ];
 const MAX_BUFFER = 1100;
 
+// Per-symbol reconnect attempt counters for exponential back-off.
+// These are reset to 0 on a successful connection, so recovered connections
+// immediately go back to fast retries after the next drop.
+const reconnectAttempts = new Map<string, number>();
+
 type TickListener = (price: number, digit: number) => void;
 
 const tickBuffers   = new Map<string, number[]>();
@@ -79,6 +84,7 @@ function connectWithUrl(symbol: string, urlIndex: number): void {
   ws.on("open", () => {
     opened = true;
     clearTimeout(openTimeout);
+    reconnectAttempts.set(symbol, 0); // reset back-off on success
     ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
     logger.debug({ symbol, urlIndex }, "tick stream subscribed");
   });
@@ -120,12 +126,19 @@ function connectWithUrl(symbol: string, urlIndex: number): void {
   ws.on("close", () => {
     clearTimeout(openTimeout);
     wsConns.delete(symbol);
+
+    // Exponential back-off: 2.5 s → 5 s → 10 s → … → 60 s max.
+    // After a successful reconnect the counter is reset so next drop is fast again.
+    const attempts = reconnectAttempts.get(symbol) ?? 0;
+    const delay    = Math.min(2_500 * Math.pow(1.6, Math.min(attempts, 10)), 60_000);
+    reconnectAttempts.set(symbol, attempts + 1);
+
     const timer = setTimeout(() => {
       reconnTimers.delete(symbol);
-      connectWithUrl(symbol, 0); // restart from primary URL
-    }, 2500);
+      connectWithUrl(symbol, 0);
+    }, delay);
     reconnTimers.set(symbol, timer);
-    logger.debug({ symbol }, "tick stream closed — reconnecting");
+    logger.debug({ symbol, delay, attempt: attempts + 1 }, "tick stream closed — scheduling reconnect");
   });
 
   ws.on("error", (err) => {

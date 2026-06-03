@@ -9,17 +9,19 @@ const DERIV_WS_ALT      = `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
 const DERIV_WS_PUBLIC   = `wss://api.derivws.com/trading/v1/options/ws/public`;
 const PING_INTERVAL_MS  = 25_000;
 const PONG_TIMEOUT_MS   = 10_000;
-const MAX_RECONNECTS    = 8;
+// No hard cap on reconnects — will retry indefinitely with capped 30-second intervals.
+// This keeps the connection alive through internet outages of any duration.
+const MAX_DELAY_MS      = 30_000;
 
 interface Session {
   clientWs:    WebSocket;
   derivWs:     WebSocket | null;
   token:       string | null;
-  otpUrl:      string | null;   // new API: OTP-authenticated WS URL
+  otpUrl:      string | null;
   authorized:  boolean;
   authFailed:  boolean;
   dead:        boolean;
-  reconnects:  number;
+  reconnects:  number;          // tracks attempts for delay calculation (not a stop limit)
   pingTimer:   ReturnType<typeof setInterval> | null;
   pongTimer:   ReturnType<typeof setTimeout>  | null;
   ip:          string;
@@ -187,21 +189,18 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
 
 function scheduleReconnect(session: Session) {
   if (session.dead || session.authFailed || session.otpUrl) return;
-  if (session.reconnects >= MAX_RECONNECTS) {
-    sendToClient(session, {
-      type: "proxy_error",
-      message: `Connection lost — max reconnect attempts (${MAX_RECONNECTS}) reached. Click Connect to retry.`,
-    });
-    return;
-  }
 
-  const delay = Math.min(500 * Math.pow(2, session.reconnects), 30_000);
+  // Exponential back-off capped at MAX_DELAY_MS (30 s).
+  // session.reconnects drives the delay only — there is NO hard stop limit.
+  // The proxy will keep retrying through any internet outage, for as long as
+  // the client WebSocket remains open.
+  const delay = Math.min(500 * Math.pow(2, Math.min(session.reconnects, 6)), MAX_DELAY_MS);
   session.reconnects++;
 
+  // Notify the client on every attempt so the UI can show "reconnecting…"
   sendToClient(session, {
     type: "proxy_reconnecting",
     attempt: session.reconnects,
-    max: MAX_RECONNECTS,
     delay_ms: delay,
   });
 
