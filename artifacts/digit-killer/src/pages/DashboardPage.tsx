@@ -5,8 +5,22 @@ import {
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
 import { useDerivContext } from "@/context/DerivContext";
-import { TrendingUp, Activity, Hash, Wifi, ExternalLink, Globe, Zap } from "lucide-react";
+import { TrendingUp, Activity, Hash, Wifi, ExternalLink, Globe, Zap, Shield, Key } from "lucide-react";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
+
+type LoginTab = "beta" | "legacy" | "token";
+
+async function generatePkce() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  const array = crypto.getRandomValues(new Uint8Array(64));
+  const codeVerifier = Array.from(array).map((v) => chars[v % chars.length]).join("");
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier));
+  const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const stateBytes = crypto.getRandomValues(new Uint8Array(16));
+  const state = Array.from(stateBytes).reduce((s, b) => s + b.toString(16).padStart(2, "0"), "");
+  return { codeVerifier, codeChallenge, state };
+}
 
 const DIGIT_COLORS: Record<number, string> = {
   0: "#00e5d4", 1: "#448aff", 2: "#ce93d8", 3: "#00c853", 4: "#ff9100",
@@ -58,11 +72,13 @@ export default function DashboardPage() {
   const { symbol } = useSymbol();
   const deriv = useDerivContext();
 
-  const [prevDigit,   setPrevDigit  ] = useState<number | null>(null);
-  const [flipKey,     setFlipKey    ] = useState(0);
-  const [tokenInput,    setTokenInput   ] = useState("");
-  const [oauthLoading,  setOauthLoading ] = useState(false);
-  const [legacyLoading, setLegacyLoading] = useState(false);
+  const [prevDigit,      setPrevDigit     ] = useState<number | null>(null);
+  const [flipKey,        setFlipKey       ] = useState(0);
+  const [loginTab,       setLoginTab      ] = useState<LoginTab>("beta");
+  const [tokenInput,     setTokenInput    ] = useState("");
+  const [betaLoading,    setBetaLoading   ] = useState(false);
+  const [legacyLoading,  setLegacyLoading ] = useState(false);
+  const [legacyOAuthLoading, setLegacyOAuthLoading] = useState(false);
 
   const { data } = useGetDigitAnalysis(
     { symbol },
@@ -104,36 +120,62 @@ export default function DashboardPage() {
 
   async function handleLegacyConnect() {
     setLegacyLoading(true);
-    try {
-      await deriv.connectLegacy();
-    } finally {
-      setLegacyLoading(false);
-    }
+    try { await deriv.connectLegacy(); } finally { setLegacyLoading(false); }
   }
 
-  async function handleOAuthRedirect() {
-    setOauthLoading(true);
+  async function handleLegacyOAuthRedirect() {
+    setLegacyOAuthLoading(true);
     try {
-      const res = await fetch("/api/deriv/oauth/login-url");
+      const res  = await fetch("/api/deriv/oauth/login-url");
       const data = await res.json() as { url?: string };
       if (data.url) { window.location.href = data.url; return; }
-    } catch { /* fallback below */ }
+    } catch { /* fallback */ }
     const redirectUri = encodeURIComponent(`${window.location.origin}/callback`);
     window.location.href = `https://oauth.deriv.com/oauth2/authorize?app_id=1089&redirect_uri=${redirectUri}`;
-    setOauthLoading(false);
+    setLegacyOAuthLoading(false);
   }
 
-  const isConnected   = deriv.status === "connected";
-  const isConnecting  = deriv.status === "connecting" || deriv.status === "authorizing";
+  async function handleBetaLogin() {
+    setBetaLoading(true);
+    try {
+      const cfgRes = await fetch("/api/deriv/oauth/beta-config");
+      const cfg    = await cfgRes.json() as { client_id: string; auth_url?: string };
+      const { codeVerifier, codeChallenge, state } = await generatePkce();
+      sessionStorage.setItem("pkce_verifier", codeVerifier);
+      sessionStorage.setItem("oauth_state",   state);
+      const redirectUri = `${window.location.origin}/callback`;
+      const authBase    = cfg.auth_url ?? "https://auth.deriv.com/oauth2/auth";
+      const url = new URL(authBase);
+      url.searchParams.set("response_type",         "code");
+      url.searchParams.set("client_id",              cfg.client_id);
+      url.searchParams.set("redirect_uri",           redirectUri);
+      url.searchParams.set("scope",                  "trade");
+      url.searchParams.set("state",                  state);
+      url.searchParams.set("code_challenge",         codeChallenge);
+      url.searchParams.set("code_challenge_method",  "S256");
+      window.location.href = url.toString();
+    } catch { setBetaLoading(false); }
+  }
+
+  const isConnected    = deriv.status === "connected";
+  const isConnecting   = deriv.status === "connecting" || deriv.status === "authorizing";
   const isDisconnected = deriv.status === "disconnected";
+
+  const TAB_META: Array<{ id: LoginTab; label: string; icon: React.ReactNode; color: string }> = [
+    { id: "beta",   label: "BETA",      icon: <Shield size={10} />, color: "#00e5ff" },
+    { id: "legacy", label: "LEGACY",    icon: <Zap    size={10} />, color: "#facc15" },
+    { id: "token",  label: "API TOKEN", icon: <Key    size={10} />, color: "#a78bfa" },
+  ];
 
   return (
     <div className="space-y-4 animate-fade-in-up" data-testid="page-dashboard">
 
-      {/* ── Deriv Connection Panel (Dashboard-only full login) ──────────────── */}
+      {/* ── Deriv Connection Panel ─────────────────────────────────────────── */}
       {isDisconnected && (
         <div className="rounded-2xl overflow-hidden"
           style={{ background: "rgba(0,0,0,0.4)", border: "1px solid rgba(0,229,255,0.18)", backdropFilter: "blur(8px)" }}>
+
+          {/* Header */}
           <div className="px-5 py-3 border-b flex items-center gap-3"
             style={{ borderColor: "rgba(0,229,255,0.1)", background: "rgba(0,229,255,0.04)" }}>
             <div className="w-2 h-2 rounded-full" style={{ background: "#ef4444", boxShadow: "0 0 6px #ef4444" }} />
@@ -149,78 +191,150 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Tab switcher */}
+          <div className="flex border-b mt-4 mx-5" style={{ borderColor: "rgba(0,229,255,0.1)" }}>
+            {TAB_META.map(({ id, label, icon, color }) => {
+              const active = loginTab === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setLoginTab(id)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 font-orbitron text-[10px] font-bold tracking-wider transition-all"
+                  style={{
+                    color: active ? color : "rgba(255,255,255,0.35)",
+                    background: active ? `${color}12` : "transparent",
+                    borderBottom: active ? `2px solid ${color}` : "2px solid transparent",
+                  }}
+                >
+                  {icon} {label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Panel */}
           <div className="p-5">
             <div className="flex flex-col gap-3 p-4 rounded-xl border max-w-lg mx-auto"
-              style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,229,255,0.03)" }}>
+              style={{ borderColor: "rgba(0,229,255,0.15)", background: "rgba(0,229,255,0.02)" }}>
 
-              {/* ── Option 1: LEGACY API one-click ───────────────────────────── */}
-              <button
-                onClick={() => void handleLegacyConnect()}
-                disabled={legacyLoading}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border disabled:opacity-50"
-                style={{ background: "rgba(250,204,21,0.09)", borderColor: "rgba(250,204,21,0.45)", color: "#facc15" }}
-              >
-                {legacyLoading
-                  ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Connecting Legacy API…</>
-                  : <><Zap size={13} /> LEGACY API — One-Click Connect</>}
-              </button>
+              {/* ── BETA ACCOUNT ─────────────────────────────────────────────── */}
+              {loginTab === "beta" && (<>
+                <div className="rounded-lg px-4 py-3 space-y-1.5"
+                  style={{ background: "rgba(0,229,255,0.05)", border: "1px solid rgba(0,229,255,0.15)" }}>
+                  <div className="flex items-center gap-2">
+                    <Shield size={12} style={{ color: "#00e5ff" }} />
+                    <span className="font-orbitron text-[10px] font-bold text-primary tracking-wider">NEW DERIV BETA API</span>
+                  </div>
+                  <p className="font-rajdhani text-xs text-muted-foreground leading-relaxed">
+                    Login with your <strong className="text-foreground">Deriv email &amp; password</strong> via secure OAuth 2.0 PKCE.
+                    Supports <span style={{ color: "#00e5ff" }}>CR</span> real accounts (CR + 5–7 digits, 7–9 chars).
+                  </p>
+                  <p className="font-rajdhani text-[10px]" style={{ color: "rgba(0,229,255,0.45)" }}>
+                    Client ID: 33s2usCRNz0BJnxgjqANK · auth.deriv.com
+                  </p>
+                </div>
 
-              {/* Divider */}
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-                <span className="font-rajdhani text-[9px] text-muted-foreground">OR USE API TOKEN</span>
-                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-              </div>
-
-              {/* ── Option 2: PAT token ──────────────────────────────────────── */}
-              <div className="flex items-center gap-2">
-                <Wifi size={14} className="text-primary" />
-                <span className="font-orbitron text-xs font-bold text-primary tracking-wider">API TOKEN LOGIN</span>
-              </div>
-              <p className="font-rajdhani text-xs text-muted-foreground leading-relaxed">
-                Paste your Deriv API token with <strong className="text-primary">Trade</strong> permission. Real &amp; Demo accounts switch automatically after connecting.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handlePATConnect(); }}
-                  placeholder="Paste Deriv API token…"
-                  className="flex-1 px-3 py-2.5 rounded-lg font-rajdhani text-xs bg-background border border-border text-foreground focus:outline-none focus:border-primary"
-                />
                 <button
-                  onClick={handlePATConnect}
-                  disabled={!tokenInput.trim()}
-                  className="px-4 py-2 rounded-lg font-orbitron text-xs font-bold tracking-wider disabled:opacity-40 transition-all"
-                  style={{ background: "#00e5ff", color: "#050a0f" }}
+                  onClick={() => void handleBetaLogin()}
+                  disabled={betaLoading}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border disabled:opacity-40"
+                  style={{ background: "rgba(0,229,255,0.1)", borderColor: "rgba(0,229,255,0.45)", color: "#00e5ff" }}
                 >
-                  <Wifi size={13} />
+                  {betaLoading
+                    ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Redirecting to Deriv…</>
+                    : <><Shield size={13} /> LOGIN WITH DERIV BETA (EMAIL &amp; PASSWORD) →</>}
                 </button>
-              </div>
-              <a href="https://app.deriv.com/account/api-token" target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-primary transition-colors">
-                <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
-              </a>
 
-              {/* Divider */}
-              <div className="flex items-center gap-2 mt-1">
-                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-                <span className="font-rajdhani text-[9px] text-muted-foreground">OR</span>
-                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-              </div>
+                <p className="font-rajdhani text-[10px] text-center" style={{ color: "rgba(0,229,255,0.35)" }}>
+                  Redirects to auth.deriv.com — you return here automatically after login.
+                </p>
+              </>)}
 
-              {/* ── Option 3: OAuth ──────────────────────────────────────────── */}
-              <button
-                onClick={() => void handleOAuthRedirect()}
-                disabled={oauthLoading}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border disabled:opacity-40"
-                style={{ background: "rgba(233,30,140,0.08)", borderColor: "rgba(233,30,140,0.35)", color: "#e91e8c" }}
-              >
-                {oauthLoading
-                  ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Redirecting…</>
-                  : <><Globe size={12} /> Login with Deriv Account →</>}
-              </button>
+              {/* ── LEGACY API ───────────────────────────────────────────────── */}
+              {loginTab === "legacy" && (<>
+                <div className="rounded-lg px-4 py-3 space-y-1.5"
+                  style={{ background: "rgba(250,204,21,0.05)", border: "1px solid rgba(250,204,21,0.15)" }}>
+                  <div className="flex items-center gap-2">
+                    <Zap size={12} style={{ color: "#facc15" }} />
+                    <span className="font-orbitron text-[10px] font-bold tracking-wider" style={{ color: "#facc15" }}>LEGACY DERIV API</span>
+                  </div>
+                  <p className="font-rajdhani text-xs text-muted-foreground leading-relaxed">
+                    Classic Deriv OAuth via <strong className="text-foreground">oauth.deriv.com</strong> (app_id 1089).
+                    Supports CR, MX, MF, and VR accounts.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => void handleLegacyConnect()}
+                  disabled={legacyLoading}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border disabled:opacity-50"
+                  style={{ background: "rgba(250,204,21,0.09)", borderColor: "rgba(250,204,21,0.45)", color: "#facc15" }}
+                >
+                  {legacyLoading
+                    ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Connecting…</>
+                    : <><Zap size={13} /> LEGACY API — One-Click Connect</>}
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                  <span className="font-rajdhani text-[9px] text-muted-foreground">OR LOGIN WITH DERIV ACCOUNT</span>
+                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                </div>
+
+                <button
+                  onClick={() => void handleLegacyOAuthRedirect()}
+                  disabled={legacyOAuthLoading}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border disabled:opacity-40"
+                  style={{ background: "rgba(233,30,140,0.08)", borderColor: "rgba(233,30,140,0.35)", color: "#e91e8c" }}
+                >
+                  {legacyOAuthLoading
+                    ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Redirecting…</>
+                    : <><Globe size={12} /> LOGIN WITH DERIV ACCOUNT (LEGACY) →</>}
+                </button>
+
+                <p className="font-rajdhani text-[10px] text-center" style={{ color: "rgba(250,204,21,0.4)" }}>
+                  Redirects to oauth.deriv.com — returns with your CR trading token automatically.
+                </p>
+              </>)}
+
+              {/* ── API TOKEN (PAT) ──────────────────────────────────────────── */}
+              {loginTab === "token" && (<>
+                <div className="rounded-lg px-4 py-3 space-y-1.5"
+                  style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.15)" }}>
+                  <div className="flex items-center gap-2">
+                    <Key size={12} style={{ color: "#a78bfa" }} />
+                    <span className="font-orbitron text-[10px] font-bold tracking-wider" style={{ color: "#a78bfa" }}>PERSONAL ACCESS TOKEN</span>
+                  </div>
+                  <p className="font-rajdhani text-xs text-muted-foreground leading-relaxed">
+                    Paste a Deriv API token with <strong className="text-foreground">Trade</strong> permission directly.
+                    Real &amp; Demo CR accounts supported.
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={tokenInput}
+                    onChange={(e) => setTokenInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handlePATConnect(); }}
+                    placeholder="Paste Deriv API token…"
+                    className="flex-1 px-3 py-2.5 rounded-lg font-rajdhani text-xs bg-background border border-border text-foreground focus:outline-none focus:border-primary"
+                  />
+                  <button
+                    onClick={handlePATConnect}
+                    disabled={!tokenInput.trim()}
+                    className="px-4 py-2 rounded-lg font-orbitron text-xs font-bold tracking-wider disabled:opacity-40 transition-all"
+                    style={{ background: "#00e5ff", color: "#050a0f" }}
+                  >
+                    <Wifi size={13} />
+                  </button>
+                </div>
+
+                <a href="https://app.deriv.com/account/api-token" target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-primary transition-colors">
+                  <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
+                </a>
+              </>)}
             </div>
           </div>
         </div>

@@ -6,8 +6,9 @@ const router = Router();
 const DERIV_AUTH_TOKEN_URL = "https://auth.deriv.com/oauth2/token";
 const DERIV_REST_BASE      = "https://api.derivws.com";
 
-const CLIENT_ID = process.env.DERIV_OAUTH_CLIENT_ID ?? "33rtqtfBfgRZqEpvayxel";
-const APP_ID    = process.env.DERIV_APP_ID ?? "1089";
+const CLIENT_ID  = process.env.DERIV_OAUTH_CLIENT_ID ?? "33s2usCRNz0BJnxgjqANK";
+const APP_ID     = process.env.DERIV_APP_ID ?? "1089";
+const LEGACY_APP_ID = process.env.DERIV_LEGACY_APP_ID ?? "1089";
 
 function getRedirectUri(req: Parameters<typeof router.get>[1] extends (req: infer R, ...args: unknown[]) => unknown ? R : never): string {
   const host  = req.headers["x-forwarded-host"] ?? req.get("host") ?? "";
@@ -36,10 +37,23 @@ router.get("/deriv/oauth/login-url", (req, res): void => {
   const redirectUri = getRedirectUri(req);
   const legacyUrl =
     `https://oauth.deriv.com/oauth2/authorize` +
-    `?app_id=${APP_ID}` +
+    `?app_id=${LEGACY_APP_ID}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
-  res.json({ url: legacyUrl, redirect_uri: redirectUri, app_id: APP_ID });
+  res.json({ url: legacyUrl, redirect_uri: redirectUri, app_id: LEGACY_APP_ID });
+});
+
+// ── GET /api/deriv/oauth/beta-config ─────────────────────────────────────────
+// Returns config for the Beta (PKCE OAuth 2.0) login flow so the frontend
+// can construct the auth.deriv.com authorization URL.
+router.get("/deriv/oauth/beta-config", (req, res): void => {
+  const redirectUri = getRedirectUri(req);
+  res.json({
+    client_id:    CLIENT_ID,
+    app_id:       APP_ID,
+    redirect_uri: redirectUri,
+    auth_url:     "https://auth.deriv.com/oauth2/auth",
+  });
 });
 
 // ── POST /api/deriv/oauth/exchange ───────────────────────────────────────────

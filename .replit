@@ -71,4 +71,6 @@ externalPort = 3000
 channel = "stable-25_05"
 
 [deployment]
-deploymentTarget = "cloudrun"
+deploymentTarget = "autoscale"
+run = ["sh", "-c", "NODE_ENV=production PORT=8080 node --enable-source-maps ./artifacts/api-server/dist/index.mjs"]
+build = ["sh", "-c", "pnpm install --frozen-lockfile && PORT=8080 BASE_PATH=/ pnpm --filter @workspace/api-server run build && PORT=8080 BASE_PATH=/ pnpm --filter @workspace/digit-killer run build"]
