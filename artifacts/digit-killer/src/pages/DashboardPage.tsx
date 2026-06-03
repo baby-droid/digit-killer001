@@ -5,38 +5,13 @@ import {
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
 import { useDerivContext } from "@/context/DerivContext";
-import { TrendingUp, Activity, Hash, LogIn, Wifi, ExternalLink } from "lucide-react";
+import { TrendingUp, Activity, Hash, Wifi, ExternalLink } from "lucide-react";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 const DIGIT_COLORS: Record<number, string> = {
   0: "#00e5d4", 1: "#448aff", 2: "#ce93d8", 3: "#00c853", 4: "#ff9100",
   5: "#00e5ff", 6: "#c6ff00", 7: "#ff1744", 8: "#f50057", 9: "#ffd600",
 };
-
-const CLIENT_ID    = "33rtqtfBfgRZqEpvayxel";
-const REDIRECT_URI = `${window.location.origin}/callback`;
-const ALPHABET     = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-
-async function buildPkceUrl(): Promise<string> {
-  const array        = crypto.getRandomValues(new Uint8Array(64));
-  const codeVerifier = Array.from(array).map((v) => ALPHABET[v % ALPHABET.length]).join("");
-  const hash         = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier));
-  const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(hash)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  const state = crypto.getRandomValues(new Uint8Array(16)).reduce((s, b) => s + b.toString(16).padStart(2, "0"), "");
-  sessionStorage.setItem("pkce_verifier", codeVerifier);
-  sessionStorage.setItem("oauth_state",   state);
-  return (
-    `https://auth.deriv.com/oauth2/auth` +
-    `?response_type=code` +
-    `&client_id=${CLIENT_ID}` +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-    `&scope=trade%20account_manage` +
-    `&state=${state}` +
-    `&code_challenge=${codeChallenge}` +
-    `&code_challenge_method=S256`
-  );
-}
 
 function DigitBubble({ digit, isLatest }: { digit: number; isLatest: boolean }) {
   const color = DIGIT_COLORS[digit] ?? "#fff";
@@ -83,9 +58,9 @@ export default function DashboardPage() {
   const { symbol } = useSymbol();
   const deriv = useDerivContext();
 
-  const [prevDigit, setPrevDigit] = useState<number | null>(null);
-  const [flipKey,   setFlipKey  ] = useState(0);
-  const [tokenInput, setTokenInput] = useState("");
+  const [prevDigit,   setPrevDigit  ] = useState<number | null>(null);
+  const [flipKey,     setFlipKey    ] = useState(0);
+  const [tokenInput,  setTokenInput ] = useState("");
 
   const { data } = useGetDigitAnalysis(
     { symbol },
@@ -116,16 +91,6 @@ export default function DashboardPage() {
       setRecentDigits((prev) => [currentDigit, ...prev].slice(0, 30));
     }
   }, [currentDigit, prevDigit]);
-
-  async function handleOAuth() {
-    try {
-      const url = await buildPkceUrl();
-      window.location.href = url;
-    } catch {
-      window.location.href =
-        `https://oauth.deriv.com/oauth2/authorize?app_id=1089&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
-    }
-  }
 
   function handlePATConnect() {
     const t = tokenInput.trim();
@@ -161,39 +126,15 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* OAuth Login */}
-            <div className="flex flex-col gap-3 p-4 rounded-xl border"
-              style={{ borderColor: "rgba(233,30,140,0.25)", background: "rgba(233,30,140,0.04)" }}>
-              <div className="flex items-center gap-2">
-                <LogIn size={14} style={{ color: "#e91e8c" }} />
-                <span className="font-orbitron text-xs font-bold tracking-wider" style={{ color: "#e91e8c" }}>
-                  LOGIN WITH DERIV
-                </span>
-                <span className="font-rajdhani text-[10px] px-1.5 py-0.5 rounded font-bold ml-auto"
-                  style={{ background: "rgba(34,197,94,0.12)", color: "#22c55e" }}>RECOMMENDED</span>
-              </div>
-              <p className="font-rajdhani text-xs text-muted-foreground leading-relaxed">
-                Use your Deriv email and password. Redirected to Deriv's secure login and back automatically.
-              </p>
-              <button
-                onClick={handleOAuth}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all"
-                style={{ background: "linear-gradient(135deg,#ff444f,#e91e8c)", color: "#fff", boxShadow: "0 0 20px rgba(233,30,140,0.35)" }}
-              >
-                <LogIn size={13} /> Login with Deriv Account
-              </button>
-            </div>
-
-            {/* API Token */}
-            <div className="flex flex-col gap-3 p-4 rounded-xl border"
+          <div className="p-5">
+            <div className="flex flex-col gap-3 p-4 rounded-xl border max-w-lg mx-auto"
               style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,229,255,0.03)" }}>
               <div className="flex items-center gap-2">
                 <Wifi size={14} className="text-primary" />
-                <span className="font-orbitron text-xs font-bold text-primary tracking-wider">API TOKEN</span>
+                <span className="font-orbitron text-xs font-bold text-primary tracking-wider">API TOKEN LOGIN</span>
               </div>
               <p className="font-rajdhani text-xs text-muted-foreground leading-relaxed">
-                Paste a Deriv API token with <strong className="text-primary">Trade</strong> permission enabled.
+                Paste your Deriv API token with <strong className="text-primary">Trade</strong> permission. Real &amp; Demo accounts switch automatically after connecting.
               </p>
               <div className="flex gap-2">
                 <input
@@ -201,7 +142,7 @@ export default function DashboardPage() {
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") handlePATConnect(); }}
-                  placeholder="Paste API token…"
+                  placeholder="Paste Deriv API token…"
                   className="flex-1 px-3 py-2.5 rounded-lg font-rajdhani text-xs bg-background border border-border text-foreground focus:outline-none focus:border-primary"
                 />
                 <button
@@ -215,7 +156,7 @@ export default function DashboardPage() {
               </div>
               <a href="https://app.deriv.com/account/api-token" target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-primary transition-colors">
-                <ExternalLink size={9} /> Get API token from Deriv
+                <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
               </a>
             </div>
           </div>
