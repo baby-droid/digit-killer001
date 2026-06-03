@@ -137,16 +137,21 @@ export default function DerivCallbackPage() {
     // oauth.deriv.com returns: ?token1=TRADING_TOKEN&loginid1=CR123456[&token2=...&loginid2=...]
     // The token here IS a direct WS trading token compatible with authorize.
     let chosenToken: string | null = null;
+    let foundReal = false;
+    // Collect ALL tokens for account switching (don't break early)
+    const tokenMap: Record<string, string> = {};
 
     for (let i = 1; i <= 10; i++) {
       const token   = params.get(`token${i}`);
       const loginid = params.get(`loginid${i}`) ?? params.get(`acct${i}`);
       if (token) {
         if (!chosenToken) chosenToken = token;
-        // Prefer first real (non-VR) account
-        if (loginid && !loginid.startsWith("VR")) {
+        if (loginid) tokenMap[loginid] = token;
+        // Prefer first real (non-VR) account as the primary token
+        if (loginid && !loginid.startsWith("VR") && !foundReal) {
           chosenToken = token;
-          break;
+          foundReal = true;
+          // Do NOT break — continue collecting remaining tokens for account switching
         }
       }
     }
@@ -160,6 +165,11 @@ export default function DerivCallbackPage() {
       localStorage.removeItem("deriv_otp_loginid");
       localStorage.removeItem("deriv_otp_currency");
       localStorage.removeItem("deriv_otp_virtual");
+
+      // Store token map so DerivContext can switch between accounts
+      if (Object.keys(tokenMap).length > 0) {
+        localStorage.setItem("deriv_token_map", JSON.stringify(tokenMap));
+      }
 
       localStorage.setItem("deriv_token", chosenToken);
       setStage("success");

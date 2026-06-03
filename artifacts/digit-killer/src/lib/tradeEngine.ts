@@ -39,7 +39,28 @@ export interface TradeSpec {
   bulk_total?: number;
 }
 
-/** Fire N parallel proposals then N parallel buys — returns all settled results */
+/** Maximum parallel proposals/buys to avoid overwhelming the WS connection */
+const PROPOSAL_CHUNK_SIZE = 5;
+
+/** Send an array of promises in chunks, collecting allSettled results */
+async function chunkedAllSettled<T>(
+  items: Array<() => Promise<T>>,
+  chunkSize: number,
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize).map((fn) => fn());
+    const chunkResults = await Promise.allSettled(chunk);
+    results.push(...chunkResults);
+    // Small delay between chunks to avoid WS message burst
+    if (i + chunkSize < items.length) {
+      await new Promise((r) => setTimeout(r, 80));
+    }
+  }
+  return results;
+}
+
+/** Fire N proposals (chunked) then N buys (chunked) — returns all settled results */
 export async function executeBulk(
   specs: TradeSpec[],
   request: (msg: Record<string, unknown>) => Promise<Record<string, unknown>>,
@@ -69,42 +90,43 @@ export async function executeBulk(
 
   records.forEach((r) => onUpdate(r));
 
-  // ── Step 1: Get all proposals in parallel ──────────────────────────────────
-  const proposalResults = await Promise.allSettled(
-    specs.map((spec, i) => {
-      const msg: Record<string, unknown> = {
-        proposal: 1,
-        amount: spec.stake,
-        basis: "stake",
-        contract_type: spec.contract_type,
-        currency,
-        duration: spec.ticks,
-        duration_unit: "t",
-        symbol: spec.symbol,
-        // No app_markup_percentage — not supported on this app_id and causes validation errors
-      };
-      if (spec.barrier !== undefined)  msg.barrier = String(spec.barrier);
-      if (spec.digit   !== undefined)  msg.barrier = String(spec.digit);
-      // For HIGHERTICK/LOWERTICK use selected_tick
-      if (spec.contract_type === "HIGHERTICK" || spec.contract_type === "LOWERTICK") {
-        delete msg.barrier;
-        msg.selected_tick = spec.barrier ?? 3;
-      }
-      onUpdate({ id: records[i].id, status: "pending" });
-      return request(msg);
-    })
-  );
+  // ── Step 1: Get all proposals in chunks (max 5 at a time) ─────────────────
+  const proposalFns = specs.map((spec, i) => () => {
+    const msg: Record<string, unknown> = {
+      proposal: 1,
+      amount: spec.stake,
+      basis: "stake",
+      contract_type: spec.contract_type,
+      currency,
+      duration: spec.ticks,
+      duration_unit: "t",
+      symbol: spec.symbol,
+      // No app_markup_percentage — not supported on this app_id and causes validation errors
+    };
+    if (spec.barrier !== undefined)  msg.barrier = String(spec.barrier);
+    if (spec.digit   !== undefined)  msg.barrier = String(spec.digit);
+    // For HIGHERTICK/LOWERTICK use selected_tick
+    if (spec.contract_type === "HIGHERTICK" || spec.contract_type === "LOWERTICK") {
+      delete msg.barrier;
+      msg.selected_tick = spec.barrier ?? 3;
+    }
+    onUpdate({ id: records[i].id, status: "pending" });
+    return request(msg);
+  });
 
-  // ── Step 2: Buy all valid proposals in parallel (max speed) ───────────────
-  const buyResults = await Promise.allSettled(
-    proposalResults.map((result, i) => {
+  const proposalResults = await chunkedAllSettled(proposalFns, PROPOSAL_CHUNK_SIZE);
+
+  // ── Step 2: Buy all valid proposals in chunks (max speed) ─────────────────
+  const buyResults = await chunkedAllSettled(
+    proposalResults.map((result, i) => () => {
       if (result.status === "rejected") {
         onUpdate({ id: records[i].id, status: "error", profit: -specs[i].stake });
-        return Promise.reject(result.reason);
+        return Promise.reject(result.reason as Error);
       }
       const prop = result.value.proposal as Record<string, unknown>;
       return request({ buy: prop.id as string, price: specs[i].stake });
-    })
+    }),
+    PROPOSAL_CHUNK_SIZE,
   );
 
   // ── Step 3: Subscribe to each contract for accurate settlement ────────────
