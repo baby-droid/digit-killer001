@@ -14,6 +14,7 @@ import {
   executeBulk, nextStake, bulkGroupId,
   type TradeResult, type TradeSpec,
 } from "@/lib/tradeEngine";
+import TickAIConfirmation from "./TickAIConfirmation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface TradeSignal {
@@ -72,6 +73,9 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
 
   // ── Auto mode ────────────────────────────────────────────────────────────────
   const [autoMode, setAutoMode] = useState(false);
+
+  // ── Tick AI Confirmation ──────────────────────────────────────────────────────
+  const [pendingConfirm, setPendingConfirm] = useState<TradeSignal | null>(null);
 
   // ── Execution state ──────────────────────────────────────────────────────────
   const [executing,     setExecuting    ] = useState(false);
@@ -149,9 +153,14 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
     setExecuting(false);
   }
 
-  async function handleExecuteBest() {
-    if (!bestSignal) return;
-    await execute(bestSignal);
+  function handleExecuteBest() {
+    if (!bestSignal || executing || blocked) return;
+    setPendingConfirm(bestSignal);
+  }
+
+  async function handleConfirmedExecute(sig: TradeSignal, confirmedTicks: number) {
+    setPendingConfirm(null);
+    await execute({ ...sig, ticks: confirmedTicks });
   }
 
   async function handleBulkAll() {
@@ -198,27 +207,48 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
   // ── Collapsed button ──────────────────────────────────────────────────────
   if (!open) {
     return (
-      <button
+      <>
+        {pendingConfirm && (
+          <TickAIConfirmation
+            signal={pendingConfirm}
+            symbol={symbol}
+            stake={currentStake}
+            onConfirm={(ticks) => void handleConfirmedExecute(pendingConfirm, ticks)}
+            onCancel={() => setPendingConfirm(null)}
+          />
+        )}
+        <button
         onClick={() => setOpen(true)}
         className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-orbitron text-sm font-bold tracking-wider transition-all border"
         style={{ background: "rgba(0,229,255,0.06)", borderColor: "rgba(0,229,255,0.3)", color: "#00e5ff" }}
       >
-        <Bot size={16} /> AUTO TRADE — {pageLabel}
-        {readySignals.length > 0 && (
-          <span className="px-1.5 py-0.5 rounded font-orbitron text-[10px]" style={{ background: "#22c55e25", color: "#22c55e" }}>
-            {readySignals.length} READY
-          </span>
-        )}
-        {deriv.status === "connected" && (
-          <span className="px-1.5 py-0.5 rounded font-rajdhani text-[10px]" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
-            {deriv.account?.is_virtual ? "DEMO" : "REAL"}
-          </span>
-        )}
-      </button>
+          <Bot size={16} /> AUTO TRADE — {pageLabel}
+          {readySignals.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded font-orbitron text-[10px]" style={{ background: "#22c55e25", color: "#22c55e" }}>
+              {readySignals.length} READY
+            </span>
+          )}
+          {deriv.status === "connected" && (
+            <span className="px-1.5 py-0.5 rounded font-rajdhani text-[10px]" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
+              {deriv.account?.is_virtual ? "DEMO" : "REAL"}
+            </span>
+          )}
+        </button>
+      </>
     );
   }
 
   return (
+    <>
+    {pendingConfirm && (
+      <TickAIConfirmation
+        signal={pendingConfirm}
+        symbol={symbol}
+        stake={currentStake}
+        onConfirm={(ticks) => void handleConfirmedExecute(pendingConfirm, ticks)}
+        onCancel={() => setPendingConfirm(null)}
+      />
+    )}
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: "rgba(0,229,255,0.25)", background: "rgba(0,229,255,0.02)" }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "rgba(0,229,255,0.15)", background: "rgba(0,0,0,0.3)" }}>
@@ -574,13 +604,13 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
             {/* ── Action buttons ─────────────────────────────────────────────── */}
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => void handleExecuteBest()}
-                disabled={!bestSignal || executing || blocked}
+                onClick={handleExecuteBest}
+                disabled={!bestSignal || executing || blocked || !!pendingConfirm}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all disabled:opacity-40"
                 style={{ background: "#00e5ff", color: "#050a0f", boxShadow: "0 0 12px rgba(0,229,255,0.2)" }}
               >
-                {executing ? <Loader size={13} className="animate-spin" /> : <Play size={13} />}
-                {executing ? "Executing…" : `Execute${bulkCount > 1 ? ` ×${bulkCount}` : ""}${bestSignal ? ` (${bestSignal.label})` : ""}`}
+                {executing ? <Loader size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+                {executing ? "Executing…" : `Confirm${bulkCount > 1 ? ` ×${bulkCount}` : ""}${bestSignal ? ` (${bestSignal.label})` : ""}`}
               </button>
               {readySignals.length > 1 && (
                 <button
@@ -665,5 +695,6 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
         )}
       </div>
     </div>
+    </>
   );
 }
