@@ -5,3 +5,7 @@
 - [Global Deriv WS context](deriv-context-arch.md) — DerivContext.tsx wraps entire app; one shared WebSocket per session; all trading pages use useDerivContext(); auto-restores from localStorage deriv_token on mount.
 - [Trade engine accuracy](trade-engine-accuracy.md) — accurate win/loss uses proposal_open_contract subscription (not polling); bulk trades fire parallel proposal+buy via Promise.all; DerivConnectionBar is required on every trading page.
 - [Deriv OAuth token types](deriv-oauth-tokens.md) — legacy oauth.deriv.com returns WS trading tokens; PKCE auth.deriv.com returns Bearer access_token (REST only); never mix them.
+- [Published app static serving](published-app-static.md) — app.ts serves frontend dist only if index.html exists in FRONTEND_DIST; build both before deploying; WS proxy not affected (handled at HTTP server level).
+- [Auto trade fires all signals](auto-trade-all-signals.md) — AutoTradePanel auto-mode calls handleBulkAll() (all readySignals) instead of execute(bestSignal); dedup key = all signals joined; fires once per unique signal set.
+- [Tick confirmation utility](tick-confirmation.md) — computeSmartTicks in lib/tickConfirmation.ts; simulates historical win rate for 1-3T; Even/Odd prefer 1T; Over0/Under9 use 2-3T; pass recentDigits from page to AutoTradePanel.
+- [GitHub push blocked in main agent](github-push-pattern.md) — git commit/push blocked in main agent bash tool; use "Push to GitHub" workflow (bash scripts/push-github.sh) instead; platform auto-commits at task end.

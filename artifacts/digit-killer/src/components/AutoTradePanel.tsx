@@ -10,6 +10,7 @@ import {
   SlidersHorizontal, Filter,
 } from "lucide-react";
 import { useDerivContext } from "@/context/DerivContext";
+import { computeSmartTicks } from "@/lib/tickConfirmation";
 import {
   executeBulk, nextStake, bulkGroupId,
   type TradeResult, type TradeSpec,
@@ -34,11 +35,13 @@ interface AutoTradePanelProps {
   signals: TradeSignal[];
   symbol: string;
   pageLabel?: string;
+  /** Recent last-digit sequence (newest last) used for smart tick confirmation */
+  recentDigits?: number[];
 }
 
 const DEFAULT_MIN_CONFIDENCE = 87;
 
-export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: AutoTradePanelProps) {
+export default function AutoTradePanel({ signals, symbol, pageLabel = "Page", recentDigits = [] }: AutoTradePanelProps) {
   const deriv = useDerivContext();
 
   const [open,          setOpen         ] = useState(false);
@@ -125,7 +128,9 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
     const groupId  = bulkGroupId();
     const count    = Math.max(1, bulkCount);
     const stake    = currentStake;
-    const ticks    = tickOverride === "signal" ? sig.ticks : tickOverride;
+    const ticks    = tickOverride === "signal"
+      ? computeSmartTicks(sig.contract_type, sig.barrier, recentDigits)
+      : tickOverride;
 
     setExecuting(true);
     const specs: TradeSpec[] = Array.from({ length: count }, (_, i) => ({
@@ -167,7 +172,9 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
         contract_type: sig.contract_type,
         symbol,
         stake,
-        ticks: sig.ticks,
+        ticks: tickOverride === "signal"
+          ? computeSmartTicks(sig.contract_type, sig.barrier, recentDigits)
+          : tickOverride,
         barrier: sig.barrier,
         digit: sig.digit,
         label: count > 1 ? `${sig.label} ×${i + 1}` : sig.label,
@@ -185,14 +192,16 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
     setExecuting(false);
   }
 
-  // ── Auto mode: fire when new best signal appears ──────────────────────────
+  // ── Auto mode: fire ALL ready signals whenever the set changes ───────────
   useEffect(() => {
-    if (!autoMode || !bestSignal || deriv.status !== "connected" || executing || blocked) return;
+    if (!autoMode || readySignals.length === 0 || deriv.status !== "connected" || executing || blocked) return;
     if (limitHit) { setAutoMode(false); return; }
-    const key = `${bestSignal.contract_type}-${bestSignal.confidence.toFixed(1)}`;
+    const key = readySignals
+      .map((s) => `${s.contract_type}:${s.barrier ?? ""}:${s.confidence.toFixed(1)}`)
+      .join("|");
     if (key === lastAutoKeyRef.current) return;
     lastAutoKeyRef.current = key;
-    void execute(bestSignal);
+    void handleBulkAll();
   });
 
   // ── Collapsed button ──────────────────────────────────────────────────────
