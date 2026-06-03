@@ -153,7 +153,7 @@ router.get("/admin/users", requireAdmin, async (req, res): Promise<void> => {
   try {
     const users = await db.select().from(usersTable).orderBy(usersTable.created_at);
     res.json(
-      users.map((u) => ({
+      users.map((u: typeof users[number]) => ({
         id: u.id,
         user_id: u.user_id,
         username: u.username,

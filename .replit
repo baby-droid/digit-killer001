@@ -9,6 +9,7 @@ stack = "BEST_EFFORT_FALLBACK"
 PORT = "5000"
 BASE_PATH = "/"
 DERIV_OAUTH_CLIENT_ID = "33rtqtfBfgRZqEpvayxel"
+DERIV_LEGACY_TOKEN = "FpBm8HY8wflJZxc"
 
 [workflows]
 runButton = "Project"

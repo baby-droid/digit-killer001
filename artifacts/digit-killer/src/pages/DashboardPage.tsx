@@ -5,7 +5,7 @@ import {
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
 import { useDerivContext } from "@/context/DerivContext";
-import { TrendingUp, Activity, Hash, Wifi, ExternalLink, Globe } from "lucide-react";
+import { TrendingUp, Activity, Hash, Wifi, ExternalLink, Globe, Zap } from "lucide-react";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 const DIGIT_COLORS: Record<number, string> = {
@@ -60,8 +60,9 @@ export default function DashboardPage() {
 
   const [prevDigit,   setPrevDigit  ] = useState<number | null>(null);
   const [flipKey,     setFlipKey    ] = useState(0);
-  const [tokenInput,   setTokenInput  ] = useState("");
-  const [oauthLoading, setOauthLoading] = useState(false);
+  const [tokenInput,    setTokenInput   ] = useState("");
+  const [oauthLoading,  setOauthLoading ] = useState(false);
+  const [legacyLoading, setLegacyLoading] = useState(false);
 
   const { data } = useGetDigitAnalysis(
     { symbol },
@@ -99,6 +100,15 @@ export default function DashboardPage() {
     localStorage.setItem("deriv_token", t);
     deriv.connect(t);
     setTokenInput("");
+  }
+
+  async function handleLegacyConnect() {
+    setLegacyLoading(true);
+    try {
+      await deriv.connectLegacy();
+    } finally {
+      setLegacyLoading(false);
+    }
   }
 
   async function handleOAuthRedirect() {
@@ -142,6 +152,27 @@ export default function DashboardPage() {
           <div className="p-5">
             <div className="flex flex-col gap-3 p-4 rounded-xl border max-w-lg mx-auto"
               style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,229,255,0.03)" }}>
+
+              {/* ── Option 1: LEGACY API one-click ───────────────────────────── */}
+              <button
+                onClick={() => void handleLegacyConnect()}
+                disabled={legacyLoading}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border disabled:opacity-50"
+                style={{ background: "rgba(250,204,21,0.09)", borderColor: "rgba(250,204,21,0.45)", color: "#facc15" }}
+              >
+                {legacyLoading
+                  ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Connecting Legacy API…</>
+                  : <><Zap size={13} /> LEGACY API — One-Click Connect</>}
+              </button>
+
+              {/* Divider */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                <span className="font-rajdhani text-[9px] text-muted-foreground">OR USE API TOKEN</span>
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+              </div>
+
+              {/* ── Option 2: PAT token ──────────────────────────────────────── */}
               <div className="flex items-center gap-2">
                 <Wifi size={14} className="text-primary" />
                 <span className="font-orbitron text-xs font-bold text-primary tracking-wider">API TOKEN LOGIN</span>
@@ -171,11 +202,15 @@ export default function DashboardPage() {
                 className="flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-primary transition-colors">
                 <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
               </a>
+
+              {/* Divider */}
               <div className="flex items-center gap-2 mt-1">
                 <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
                 <span className="font-rajdhani text-[9px] text-muted-foreground">OR</span>
                 <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
               </div>
+
+              {/* ── Option 3: OAuth ──────────────────────────────────────────── */}
               <button
                 onClick={() => void handleOAuthRedirect()}
                 disabled={oauthLoading}

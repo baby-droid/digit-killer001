@@ -187,21 +187,15 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
 
 function scheduleReconnect(session: Session) {
   if (session.dead || session.authFailed || session.otpUrl) return;
-  if (session.reconnects >= MAX_RECONNECTS) {
-    sendToClient(session, {
-      type: "proxy_error",
-      message: `Connection lost — max reconnect attempts (${MAX_RECONNECTS}) reached. Click Connect to retry.`,
-    });
-    return;
-  }
 
-  const delay = Math.min(500 * Math.pow(2, session.reconnects), 30_000);
+  // Use MAX_RECONNECTS as the back-off cap, but cycle forever — never give up.
+  const exp   = session.reconnects % MAX_RECONNECTS;
+  const delay = Math.min(500 * Math.pow(2, exp), 30_000);
   session.reconnects++;
 
   sendToClient(session, {
     type: "proxy_reconnecting",
     attempt: session.reconnects,
-    max: MAX_RECONNECTS,
     delay_ms: delay,
   });
 

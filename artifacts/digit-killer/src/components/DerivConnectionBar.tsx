@@ -5,14 +5,16 @@
  * On all other pages: shows a compact status strip when connected, or a small
  *   "Connect on Dashboard" banner when disconnected — no login form.
  *
- * Login is via Deriv API token (PAT) with Trade permission.
- * Real / Demo account switching works automatically when the account list has multiple accounts.
+ * Login options:
+ *   1. API Token (PAT) — paste a Deriv API token with Trade permission
+ *   2. LEGACY API — one-click connect using the platform's built-in token
+ *   3. Login with Deriv Account — OAuth redirect flow
  */
 import { useState } from "react";
 import { useLocation, Link } from "wouter";
 import {
   Wifi, Loader, DollarSign, User, ChevronDown,
-  RotateCcw, LogIn, LogOut, AlertCircle, ExternalLink, Globe,
+  RotateCcw, LogIn, LogOut, AlertCircle, ExternalLink, Globe, Zap,
 } from "lucide-react";
 import { useDerivContext } from "@/context/DerivContext";
 
@@ -24,12 +26,13 @@ export default function DerivConnectionBar() {
   const deriv = useDerivContext();
   const [location] = useLocation();
 
-  const [tokenInput,   setTokenInput  ] = useState(() => localStorage.getItem("deriv_token") ?? "");
-  const [showConnect,  setShowConnect ] = useState(false);
-  const [showAccts,    setShowAccts   ] = useState(false);
-  const [demoMsg,      setDemoMsg     ] = useState<string | null>(null);
-  const [resetting,    setResetting   ] = useState(false);
-  const [oauthLoading, setOauthLoading] = useState(false);
+  const [tokenInput,    setTokenInput   ] = useState(() => localStorage.getItem("deriv_token") ?? "");
+  const [showConnect,   setShowConnect  ] = useState(false);
+  const [showAccts,     setShowAccts    ] = useState(false);
+  const [demoMsg,       setDemoMsg      ] = useState<string | null>(null);
+  const [resetting,     setResetting    ] = useState(false);
+  const [oauthLoading,  setOauthLoading ] = useState(false);
+  const [legacyLoading, setLegacyLoading] = useState(false);
 
   const onDashboard = isDashboard(location);
 
@@ -56,6 +59,16 @@ export default function DerivConnectionBar() {
     localStorage.setItem("deriv_token", t);
     deriv.connect(t);
     setShowConnect(false);
+  }
+
+  async function handleLegacyConnect() {
+    setLegacyLoading(true);
+    setShowConnect(false);
+    try {
+      await deriv.connectLegacy();
+    } finally {
+      setLegacyLoading(false);
+    }
   }
 
   async function handleOAuthRedirect() {
@@ -119,13 +132,28 @@ export default function DerivConnectionBar() {
         )}
 
         {!showConnect ? (
-          <button
-            onClick={() => setShowConnect(true)}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border"
-            style={{ background: "rgba(0,229,255,0.06)", borderColor: "rgba(0,229,255,0.3)", color: "#00e5ff" }}
-          >
-            <Wifi size={14} /> CONNECT DERIV ACCOUNT TO TRADE
-          </button>
+          <div className="space-y-2">
+            {/* Primary connect button */}
+            <button
+              onClick={() => setShowConnect(true)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border"
+              style={{ background: "rgba(0,229,255,0.06)", borderColor: "rgba(0,229,255,0.3)", color: "#00e5ff" }}
+            >
+              <Wifi size={14} /> CONNECT DERIV ACCOUNT TO TRADE
+            </button>
+
+            {/* One-click legacy API button — always visible and separate */}
+            <button
+              onClick={() => void handleLegacyConnect()}
+              disabled={legacyLoading}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg font-orbitron text-[11px] font-bold tracking-wider transition-all border disabled:opacity-50"
+              style={{ background: "rgba(250,204,21,0.07)", borderColor: "rgba(250,204,21,0.35)", color: "#facc15" }}
+            >
+              {legacyLoading
+                ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Connecting…</>
+                : <><Zap size={12} /> LEGACY API — Quick Connect</>}
+            </button>
+          </div>
         ) : (
           <div className="rounded-xl border overflow-hidden" style={{ borderColor: "rgba(0,229,255,0.25)", background: "rgba(0,229,255,0.02)" }}>
             <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: "rgba(0,229,255,0.12)", background: "rgba(0,0,0,0.25)" }}>
@@ -134,8 +162,28 @@ export default function DerivConnectionBar() {
             </div>
 
             <div className="p-4 space-y-2">
+              {/* Option 1 — LEGACY API quick connect */}
+              <button
+                onClick={() => void handleLegacyConnect()}
+                disabled={legacyLoading}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all border disabled:opacity-50"
+                style={{ background: "rgba(250,204,21,0.08)", borderColor: "rgba(250,204,21,0.4)", color: "#facc15" }}
+              >
+                {legacyLoading
+                  ? <><span className="inline-block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Connecting Legacy API…</>
+                  : <><Zap size={13} /> LEGACY API — One-Click Connect</>}
+              </button>
+
+              {/* Divider */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                <span className="font-rajdhani text-[9px] text-muted-foreground">OR USE API TOKEN</span>
+                <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+              </div>
+
+              {/* Option 2 — PAT token input */}
               <p className="font-rajdhani text-xs text-muted-foreground">
-                Enter your Deriv API token with <strong className="text-foreground">Trade</strong> permission. Real &amp; Demo accounts switch automatically after connecting.
+                Enter your Deriv API token with <strong className="text-foreground">Trade</strong> permission.
               </p>
               <div className="flex gap-2">
                 <input
@@ -163,11 +211,15 @@ export default function DerivConnectionBar() {
               >
                 <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
               </a>
-              <div className="flex items-center gap-2 my-1">
+
+              {/* Divider */}
+              <div className="flex items-center gap-2 mt-1">
                 <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
                 <span className="font-rajdhani text-[9px] text-muted-foreground">OR</span>
                 <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
               </div>
+
+              {/* Option 3 — OAuth */}
               <button
                 onClick={() => void handleOAuthRedirect()}
                 disabled={oauthLoading}
