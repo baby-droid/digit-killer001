@@ -15,6 +15,20 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+// Catch any unhandled "error" events that bubble up (e.g. from ws WebSocketServer
+// sharing the HTTP server) so the process doesn't crash with an unhandled exception.
+process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    logger.warn(
+      { port },
+      "Port already in use — another instance is running. Exiting cleanly.",
+    );
+    process.exit(0);
+  }
+  logger.error({ err: err.message, code: err.code }, "Uncaught exception");
+  process.exit(1);
+});
+
 const server = http.createServer(app);
 attachWsProxy(server);
 
