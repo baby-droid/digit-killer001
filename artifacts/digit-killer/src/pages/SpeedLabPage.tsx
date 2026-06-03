@@ -33,10 +33,18 @@ const ALL_CONTRACTS: ContractDef[] = [
   { id: "MATCH5",   label: "Match 5",   contract_type: "DIGITMATCH", digit: 5, defaultTicks: 5, color: "#22c55e", category: "Digits" },
   { id: "MATCH9",   label: "Match 9",   contract_type: "DIGITMATCH", digit: 9, defaultTicks: 5, color: "#22c55e", category: "Digits" },
   { id: "DIFFER5",  label: "Differ 5",  contract_type: "DIGITDIFF",  digit: 5, defaultTicks: 5, color: "#fb923c", category: "Digits" },
-  { id: "OVER4",    label: "Over 4",    contract_type: "DIGITOVER",  barrier: 4, defaultTicks: 5, color: "#f59e0b", category: "Digits" },
+  { id: "OVER0",    label: "Over 0",    contract_type: "DIGITOVER",  barrier: 0, defaultTicks: 2, color: "#f59e0b", category: "Digits" },
+  { id: "OVER1",    label: "Over 1",    contract_type: "DIGITOVER",  barrier: 1, defaultTicks: 2, color: "#f59e0b", category: "Digits" },
+  { id: "OVER2",    label: "Over 2",    contract_type: "DIGITOVER",  barrier: 2, defaultTicks: 2, color: "#f59e0b", category: "Digits" },
+  { id: "OVER3",    label: "Over 3",    contract_type: "DIGITOVER",  barrier: 3, defaultTicks: 3, color: "#f59e0b", category: "Digits" },
+  { id: "OVER4",    label: "Over 4",    contract_type: "DIGITOVER",  barrier: 4, defaultTicks: 3, color: "#f59e0b", category: "Digits" },
   { id: "OVER5",    label: "Over 5",    contract_type: "DIGITOVER",  barrier: 5, defaultTicks: 5, color: "#f59e0b", category: "Digits" },
   { id: "UNDER4",   label: "Under 4",   contract_type: "DIGITUNDER", barrier: 4, defaultTicks: 5, color: "#e91e8c", category: "Digits" },
-  { id: "UNDER5",   label: "Under 5",   contract_type: "DIGITUNDER", barrier: 5, defaultTicks: 5, color: "#e91e8c", category: "Digits" },
+  { id: "UNDER5",   label: "Under 5",   contract_type: "DIGITUNDER", barrier: 5, defaultTicks: 3, color: "#e91e8c", category: "Digits" },
+  { id: "UNDER6",   label: "Under 6",   contract_type: "DIGITUNDER", barrier: 6, defaultTicks: 3, color: "#e91e8c", category: "Digits" },
+  { id: "UNDER7",   label: "Under 7",   contract_type: "DIGITUNDER", barrier: 7, defaultTicks: 2, color: "#e91e8c", category: "Digits" },
+  { id: "UNDER8",   label: "Under 8",   contract_type: "DIGITUNDER", barrier: 8, defaultTicks: 2, color: "#e91e8c", category: "Digits" },
+  { id: "UNDER9",   label: "Under 9",   contract_type: "DIGITUNDER", barrier: 9, defaultTicks: 2, color: "#e91e8c", category: "Digits" },
   { id: "RISE",     label: "Rise",      contract_type: "CALL",       defaultTicks: 5, color: "#22c55e", category: "Rise/Fall" },
   { id: "FALL",     label: "Fall",      contract_type: "PUT",        defaultTicks: 5, color: "#ef4444", category: "Rise/Fall" },
   { id: "RUNHIGH",  label: "Only Up",   contract_type: "RUNHIGH",    defaultTicks: 5, color: "#4ade80", category: "Only" },
@@ -102,8 +110,14 @@ function signalToContractId(sig: AiSignal): string | null {
   if (ct === "RUNLOW")     return "RUNLOW";
   if (ct === "HIGHERTICK") return "HIGHTICK";
   if (ct === "LOWERTICK")  return "LOWTICK";
-  if (ct === "DIGITOVER")  { if (sig.barrier === 4) return "OVER4"; if (sig.barrier === 5) return "OVER5"; return null; }
-  if (ct === "DIGITUNDER") { if (sig.barrier === 4) return "UNDER4"; if (sig.barrier === 5) return "UNDER5"; return null; }
+  if (ct === "DIGITOVER") {
+    const overMap: Record<number, string> = { 0:"OVER0",1:"OVER1",2:"OVER2",3:"OVER3",4:"OVER4",5:"OVER5" };
+    return sig.barrier !== undefined ? (overMap[sig.barrier] ?? null) : null;
+  }
+  if (ct === "DIGITUNDER") {
+    const underMap: Record<number, string> = { 4:"UNDER4",5:"UNDER5",6:"UNDER6",7:"UNDER7",8:"UNDER8",9:"UNDER9" };
+    return sig.barrier !== undefined ? (underMap[sig.barrier] ?? null) : null;
+  }
   if (ct === "DIGITMATCH") {
     if (sig.digit === 0) return "MATCH0"; if (sig.digit === 1) return "MATCH1";
     if (sig.digit === 5) return "MATCH5"; if (sig.digit === 9) return "MATCH9";
@@ -200,6 +214,11 @@ export default function SpeedLabPage() {
   const [ticksMap, setTicksMap] = useState<Record<string, number>>(() =>
     Object.fromEntries(ALL_CONTRACTS.map((c) => [c.id, c.defaultTicks]))
   );
+  const [barrierMap, setBarrierMap] = useState<Record<string, number>>(() =>
+    Object.fromEntries(
+      ALL_CONTRACTS.filter((c) => c.barrier !== undefined).map((c) => [c.id, c.barrier as number]),
+    )
+  );
 
   // ── AI mode ──────────────────────────────────────────────────────────────────
   const [aiMode,            setAiMode           ] = useState(false);
@@ -271,7 +290,10 @@ export default function SpeedLabPage() {
         specs.push({
           contract_type: def.contract_type, symbol: mkt, stake,
           ticks: ticksMap[cid] ?? def.defaultTicks,
-          barrier: def.barrier, digit: def.digit,
+          barrier: (def.contract_type === "DIGITOVER" || def.contract_type === "DIGITUNDER")
+            ? (barrierMap[cid] ?? def.barrier)
+            : def.barrier,
+          digit: def.digit,
           label: `${ALL_MARKETS.find((m) => m.key === mkt)?.label ?? mkt} · ${def.label}`,
           confidence: 100, bulk_group: gid, bulk_index: idx++, bulk_total: total_count,
         });
@@ -579,13 +601,28 @@ export default function SpeedLabPage() {
                 {def.label}
               </button>
               {selectedContracts.includes(def.id) && !aiMode && (
-                <div className="flex items-center gap-1">
-                  <span className="font-rajdhani text-[9px] text-muted-foreground">T:</span>
-                  <select value={ticksMap[def.id] ?? def.defaultTicks}
-                    onChange={(e) => setTicksMap((p) => ({ ...p, [def.id]: parseInt(e.target.value) }))}
-                    className="text-[10px] font-orbitron bg-background border border-border rounded px-1 py-0.5 text-foreground focus:outline-none">
-                    {[1, 2, 3, 5, 10].map((t) => <option key={t} value={t}>{t}T</option>)}
-                  </select>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1">
+                    <span className="font-rajdhani text-[9px] text-muted-foreground">T:</span>
+                    <select value={ticksMap[def.id] ?? def.defaultTicks}
+                      onChange={(e) => setTicksMap((p) => ({ ...p, [def.id]: parseInt(e.target.value) }))}
+                      className="text-[10px] font-orbitron bg-background border border-border rounded px-1 py-0.5 text-foreground focus:outline-none">
+                      {[1, 2, 3, 5, 10].map((t) => <option key={t} value={t}>{t}T</option>)}
+                    </select>
+                  </div>
+                  {(def.contract_type === "DIGITOVER" || def.contract_type === "DIGITUNDER") && (
+                    <div className="flex items-center gap-1">
+                      <span className="font-rajdhani text-[9px] text-muted-foreground">B:</span>
+                      <select value={barrierMap[def.id] ?? def.barrier}
+                        onChange={(e) => setBarrierMap((p) => ({ ...p, [def.id]: parseInt(e.target.value) }))}
+                        className="text-[10px] font-orbitron bg-background border border-border rounded px-1 py-0.5 text-foreground focus:outline-none">
+                        {(def.contract_type === "DIGITOVER"
+                          ? [0,1,2,3,4,5,6,7,8]
+                          : [1,2,3,4,5,6,7,8,9]
+                        ).map((b) => <option key={b} value={b}>{b}</option>)}
+                      </select>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

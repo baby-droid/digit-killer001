@@ -168,7 +168,6 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
       sendToClient(session, {
         type: "proxy_reconnecting",
         attempt: session.reconnects + 1,
-        max: MAX_RECONNECTS,
         reason: "Network interruption",
       });
     }
