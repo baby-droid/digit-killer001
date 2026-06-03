@@ -5,7 +5,7 @@ import {
 } from "@workspace/api-client-react";
 import { useSymbol } from "@/context/SymbolContext";
 import { useDerivContext } from "@/context/DerivContext";
-import { TrendingUp, Activity, Hash, Wifi, ExternalLink, Globe, Zap, Shield, Key } from "lucide-react";
+import { TrendingUp, Activity, Hash, Wifi, ExternalLink, Globe, Zap, Shield, Key, UserCheck, ChevronRight } from "lucide-react";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
 
 type LoginTab = "beta" | "legacy" | "token";
@@ -76,6 +76,9 @@ export default function DashboardPage() {
   const [flipKey,        setFlipKey       ] = useState(0);
   const [loginTab,       setLoginTab      ] = useState<LoginTab>("beta");
   const [tokenInput,     setTokenInput    ] = useState("");
+  const [legacyTokenInput, setLegacyTokenInput] = useState("");
+  const [crInput,        setCrInput       ] = useState("");
+  const [crMessage,      setCrMessage     ] = useState<{ text: string; ok: boolean } | null>(null);
   const [betaLoading,    setBetaLoading   ] = useState(false);
   const [legacyLoading,  setLegacyLoading ] = useState(false);
   const [legacyOAuthLoading, setLegacyOAuthLoading] = useState(false);
@@ -110,12 +113,42 @@ export default function DashboardPage() {
     }
   }, [currentDigit, prevDigit]);
 
-  function handlePATConnect() {
-    const t = tokenInput.trim();
+  function getStoredTokenMap(): Record<string, string> {
+    try { return JSON.parse(localStorage.getItem("deriv_account_tokens") ?? "{}") as Record<string, string>; }
+    catch { return {}; }
+  }
+
+  function connectWithToken(token: string) {
+    const t = token.trim();
     if (!t) return;
     localStorage.setItem("deriv_token", t);
     deriv.connect(t);
+  }
+
+  function handlePATConnect() {
+    if (!tokenInput.trim()) return;
+    connectWithToken(tokenInput.trim());
     setTokenInput("");
+  }
+
+  function handleLegacyTokenConnect() {
+    if (!legacyTokenInput.trim()) return;
+    connectWithToken(legacyTokenInput.trim());
+    setLegacyTokenInput("");
+  }
+
+  function handleCrConnect() {
+    const cr = crInput.trim().toUpperCase();
+    if (!cr) return;
+    const map   = getStoredTokenMap();
+    const token = map[cr];
+    if (token) {
+      setCrMessage(null);
+      connectWithToken(token);
+      setCrInput("");
+    } else {
+      setCrMessage({ text: `No stored token for ${cr} — login via OAuth first`, ok: false });
+    }
   }
 
   async function handleLegacyConnect() {
@@ -161,10 +194,12 @@ export default function DashboardPage() {
   const isConnecting   = deriv.status === "connecting" || deriv.status === "authorizing";
   const isDisconnected = deriv.status === "disconnected";
 
+  const storedAccounts = Object.entries(getStoredTokenMap()); // [[loginid, token], ...]
+
   const TAB_META: Array<{ id: LoginTab; label: string; icon: React.ReactNode; color: string }> = [
-    { id: "beta",   label: "BETA",      icon: <Shield size={10} />, color: "#00e5ff" },
-    { id: "legacy", label: "LEGACY",    icon: <Zap    size={10} />, color: "#facc15" },
-    { id: "token",  label: "API TOKEN", icon: <Key    size={10} />, color: "#a78bfa" },
+    { id: "beta",   label: "BETA",     icon: <Shield      size={10} />, color: "#00e5ff" },
+    { id: "legacy", label: "LEGACY",   icon: <Zap         size={10} />, color: "#facc15" },
+    { id: "token",  label: "BETA API", icon: <UserCheck   size={10} />, color: "#a78bfa" },
   ];
 
   return (
@@ -217,8 +252,94 @@ export default function DashboardPage() {
             <div className="flex flex-col gap-3 p-4 rounded-xl border max-w-lg mx-auto"
               style={{ borderColor: "rgba(0,229,255,0.15)", background: "rgba(0,229,255,0.02)" }}>
 
+              {/* ── CR HEADER: Quick-connect from stored accounts ─────────────── */}
+              {(loginTab === "beta" || loginTab === "legacy") && (
+                <div className="rounded-lg overflow-hidden border"
+                  style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,0,0,0.3)" }}>
+
+                  {/* Header */}
+                  <div className="flex items-center gap-2 px-3 py-2 border-b"
+                    style={{ borderColor: "rgba(0,229,255,0.12)", background: "rgba(0,229,255,0.05)" }}>
+                    <UserCheck size={11} style={{ color: "#00e5ff" }} />
+                    <span className="font-orbitron text-[9px] font-bold text-primary tracking-widest">CR ACCOUNT — QUICK CONNECT</span>
+                  </div>
+
+                  <div className="p-3 space-y-2.5">
+                    {/* Stored accounts row */}
+                    {storedAccounts.length > 0 && (
+                      <div className="space-y-1.5">
+                        <span className="font-rajdhani text-[9px] text-muted-foreground tracking-wider">STORED ACCOUNTS — CLICK TO CONNECT INSTANTLY</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {storedAccounts.map(([loginid, token]) => {
+                            const isVirtual = loginid.startsWith("VR");
+                            return (
+                              <button
+                                key={loginid}
+                                onClick={() => connectWithToken(token)}
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-orbitron text-[10px] font-bold transition-all hover:scale-105 active:scale-95"
+                                style={{
+                                  background: isVirtual ? "rgba(250,204,21,0.1)" : "rgba(0,229,255,0.1)",
+                                  border: `1px solid ${isVirtual ? "rgba(250,204,21,0.4)" : "rgba(0,229,255,0.4)"}`,
+                                  color: isVirtual ? "#facc15" : "#00e5ff",
+                                }}
+                                title={`Connect as ${loginid}`}
+                              >
+                                {loginid}
+                                <ChevronRight size={9} />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* CR number paste input */}
+                    <div className="space-y-1">
+                      <span className="font-rajdhani text-[9px] text-muted-foreground tracking-wider">
+                        OR ENTER CR NUMBER TO CONNECT
+                      </span>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={crInput}
+                          onChange={(e) => { setCrInput(e.target.value); setCrMessage(null); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleCrConnect(); }}
+                          placeholder="CR1234567 or VRTC1234567"
+                          className="flex-1 px-3 py-2 rounded-lg font-rajdhani text-xs bg-background border border-border text-foreground focus:outline-none focus:border-primary tracking-wider"
+                          style={{ textTransform: "uppercase" }}
+                        />
+                        <button
+                          onClick={handleCrConnect}
+                          disabled={!crInput.trim()}
+                          className="flex items-center gap-1 px-3 py-2 rounded-lg font-orbitron text-[10px] font-bold tracking-wider disabled:opacity-40 transition-all"
+                          style={{ background: "rgba(0,229,255,0.15)", border: "1px solid rgba(0,229,255,0.4)", color: "#00e5ff" }}
+                        >
+                          <ChevronRight size={12} />
+                        </button>
+                      </div>
+                      {crMessage && (
+                        <p className="font-rajdhani text-[10px]" style={{ color: crMessage.ok ? "#22c55e" : "#ef4444" }}>
+                          {crMessage.text}
+                        </p>
+                      )}
+                      {storedAccounts.length === 0 && (
+                        <p className="font-rajdhani text-[9px]" style={{ color: "rgba(255,255,255,0.3)" }}>
+                          No stored tokens yet — login via OAuth below to store account tokens automatically.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* ── BETA ACCOUNT ─────────────────────────────────────────────── */}
               {loginTab === "beta" && (<>
+                <div className="flex items-center gap-2 my-1">
+                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                  <span className="font-rajdhani text-[9px] text-muted-foreground">OR LOGIN WITH DERIV BETA OAUTH</span>
+                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                </div>
+
                 <div className="rounded-lg px-4 py-3 space-y-1.5"
                   style={{ background: "rgba(0,229,255,0.05)", border: "1px solid rgba(0,229,255,0.15)" }}>
                   <div className="flex items-center gap-2">
@@ -252,6 +373,12 @@ export default function DashboardPage() {
 
               {/* ── LEGACY API ───────────────────────────────────────────────── */}
               {loginTab === "legacy" && (<>
+                <div className="flex items-center gap-2 my-1">
+                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                  <span className="font-rajdhani text-[9px] text-muted-foreground">OR CONNECT VIA LEGACY OAUTH</span>
+                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                </div>
+
                 <div className="rounded-lg px-4 py-3 space-y-1.5"
                   style={{ background: "rgba(250,204,21,0.05)", border: "1px solid rgba(250,204,21,0.15)" }}>
                   <div className="flex items-center gap-2">
@@ -275,12 +402,6 @@ export default function DashboardPage() {
                     : <><Zap size={13} /> LEGACY API — One-Click Connect</>}
                 </button>
 
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-                  <span className="font-rajdhani text-[9px] text-muted-foreground">OR LOGIN WITH DERIV ACCOUNT</span>
-                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
-                </div>
-
                 <button
                   onClick={() => void handleLegacyOAuthRedirect()}
                   disabled={legacyOAuthLoading}
@@ -292,24 +413,87 @@ export default function DashboardPage() {
                     : <><Globe size={12} /> LOGIN WITH DERIV ACCOUNT (LEGACY) →</>}
                 </button>
 
-                <p className="font-rajdhani text-[10px] text-center" style={{ color: "rgba(250,204,21,0.4)" }}>
-                  Redirects to oauth.deriv.com — returns with your CR trading token automatically.
-                </p>
+                <div className="flex items-center gap-2 my-1">
+                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                  <span className="font-rajdhani text-[9px] text-muted-foreground">OR PASTE YOUR API TOKEN</span>
+                  <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+                </div>
+
+                {/* Legacy inline token paste */}
+                <div className="rounded-lg px-4 py-3 space-y-2"
+                  style={{ background: "rgba(250,204,21,0.03)", border: "1px solid rgba(250,204,21,0.12)" }}>
+                  <div className="flex items-center gap-1.5">
+                    <Key size={11} style={{ color: "#facc15" }} />
+                    <span className="font-orbitron text-[9px] font-bold tracking-wider" style={{ color: "#facc15" }}>PASTE LEGACY API TOKEN</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={legacyTokenInput}
+                      onChange={(e) => setLegacyTokenInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleLegacyTokenConnect(); }}
+                      placeholder="Paste your Deriv API token…"
+                      className="flex-1 px-3 py-2 rounded-lg font-rajdhani text-xs bg-background border border-border text-foreground focus:outline-none focus:border-primary"
+                    />
+                    <button
+                      onClick={handleLegacyTokenConnect}
+                      disabled={!legacyTokenInput.trim()}
+                      className="px-3 py-2 rounded-lg font-orbitron text-xs font-bold tracking-wider disabled:opacity-40 transition-all"
+                      style={{ background: "rgba(250,204,21,0.2)", border: "1px solid rgba(250,204,21,0.4)", color: "#facc15" }}
+                    >
+                      <Wifi size={13} />
+                    </button>
+                  </div>
+                  <a href="https://app.deriv.com/account/api-token" target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1 font-rajdhani text-[9px] text-muted-foreground hover:text-primary transition-colors">
+                    <ExternalLink size={8} /> Get your token at app.deriv.com → API Token (enable Trade)
+                  </a>
+                </div>
               </>)}
 
-              {/* ── API TOKEN (PAT) ──────────────────────────────────────────── */}
+              {/* ── BETA API (PAT pat_... format) ─────────────────────────────── */}
               {loginTab === "token" && (<>
                 <div className="rounded-lg px-4 py-3 space-y-1.5"
-                  style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.15)" }}>
+                  style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.2)" }}>
                   <div className="flex items-center gap-2">
-                    <Key size={12} style={{ color: "#a78bfa" }} />
-                    <span className="font-orbitron text-[10px] font-bold tracking-wider" style={{ color: "#a78bfa" }}>PERSONAL ACCESS TOKEN</span>
+                    <UserCheck size={12} style={{ color: "#a78bfa" }} />
+                    <span className="font-orbitron text-[10px] font-bold tracking-wider" style={{ color: "#a78bfa" }}>BETA API — PERSONAL ACCESS TOKEN</span>
                   </div>
                   <p className="font-rajdhani text-xs text-muted-foreground leading-relaxed">
-                    Paste a Deriv API token with <strong className="text-foreground">Trade</strong> permission directly.
-                    Real &amp; Demo CR accounts supported.
+                    Paste a Deriv <strong className="text-foreground">Beta API token</strong> (<code className="text-[10px] px-1 rounded" style={{ background: "rgba(167,139,250,0.12)", color: "#a78bfa" }}>pat_...</code> format).
+                    Connects using the same secure WebSocket authorization as Legacy.
+                  </p>
+                  <p className="font-rajdhani text-[10px]" style={{ color: "rgba(167,139,250,0.5)" }}>
+                    Real &amp; Demo CR accounts supported · Trade permission required
                   </p>
                 </div>
+
+                {/* CR Header panel for token tab */}
+                {storedAccounts.length > 0 && (
+                  <div className="rounded-lg p-3 border space-y-2"
+                    style={{ borderColor: "rgba(167,139,250,0.2)", background: "rgba(167,139,250,0.03)" }}>
+                    <span className="font-rajdhani text-[9px] text-muted-foreground tracking-wider">STORED CR ACCOUNTS — CLICK TO RECONNECT</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {storedAccounts.map(([loginid, token]) => {
+                        const isVirtual = loginid.startsWith("VR");
+                        return (
+                          <button
+                            key={loginid}
+                            onClick={() => connectWithToken(token)}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-orbitron text-[10px] font-bold transition-all hover:scale-105"
+                            style={{
+                              background: isVirtual ? "rgba(250,204,21,0.1)" : "rgba(167,139,250,0.12)",
+                              border: `1px solid ${isVirtual ? "rgba(250,204,21,0.35)" : "rgba(167,139,250,0.4)"}`,
+                              color: isVirtual ? "#facc15" : "#a78bfa",
+                            }}
+                          >
+                            {loginid} <ChevronRight size={9} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <input
@@ -317,14 +501,15 @@ export default function DashboardPage() {
                     value={tokenInput}
                     onChange={(e) => setTokenInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") handlePATConnect(); }}
-                    placeholder="Paste Deriv API token…"
+                    placeholder="pat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                     className="flex-1 px-3 py-2.5 rounded-lg font-rajdhani text-xs bg-background border border-border text-foreground focus:outline-none focus:border-primary"
+                    style={{ fontFamily: "monospace" }}
                   />
                   <button
                     onClick={handlePATConnect}
                     disabled={!tokenInput.trim()}
                     className="px-4 py-2 rounded-lg font-orbitron text-xs font-bold tracking-wider disabled:opacity-40 transition-all"
-                    style={{ background: "#00e5ff", color: "#050a0f" }}
+                    style={{ background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.5)", color: "#a78bfa" }}
                   >
                     <Wifi size={13} />
                   </button>
@@ -332,7 +517,7 @@ export default function DashboardPage() {
 
                 <a href="https://app.deriv.com/account/api-token" target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-primary transition-colors">
-                  <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
+                  <ExternalLink size={9} /> Get your Beta API token at app.deriv.com → API Token
                 </a>
               </>)}
             </div>
