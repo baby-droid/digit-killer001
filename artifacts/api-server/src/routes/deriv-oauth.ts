@@ -6,7 +6,7 @@ const router = Router();
 const DERIV_AUTH_TOKEN_URL = "https://auth.deriv.com/oauth2/token";
 const DERIV_REST_BASE      = "https://api.derivws.com";
 
-const CLIENT_ID  = process.env.DERIV_OAUTH_CLIENT_ID ?? "33s2usCRNz0BJnxgjqANK";
+const CLIENT_ID  = "33s2usCRNz0BJnxgjqANK";
 const APP_ID     = process.env.DERIV_APP_ID ?? "1089";
 const LEGACY_APP_ID = process.env.DERIV_LEGACY_APP_ID ?? "1089";
 

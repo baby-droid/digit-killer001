@@ -146,13 +146,12 @@ export default function DerivConnectionBar() {
   }
 
   function handleDisconnect() {
-    localStorage.removeItem("deriv_token");
-    localStorage.removeItem("deriv_access_token");
-    localStorage.removeItem("deriv_otp_account_id");
-    localStorage.removeItem("deriv_otp_loginid");
-    localStorage.removeItem("deriv_otp_currency");
-    localStorage.removeItem("deriv_otp_virtual");
-    deriv.disconnect();
+    deriv.disconnect(); // clears all stored auth state
+  }
+
+  function getStoredToken(loginid: string): string | undefined {
+    try { return (JSON.parse(localStorage.getItem("deriv_account_tokens") ?? "{}") as Record<string, string>)[loginid]; }
+    catch { return undefined; }
   }
 
   // ── DISCONNECTED: non-dashboard compact banner ─────────────────────────────
@@ -407,16 +406,39 @@ export default function DerivConnectionBar() {
   }
 
   // ── CONNECTED ─────────────────────────────────────────────────────────────
-  const loginid = deriv.account?.loginid ?? "";
+  const loginid    = deriv.account?.loginid ?? "";
+  const multiAcct  = deriv.accountList.length > 1;
+
   return (
     <div className="mb-4 space-y-2">
+      {/* ── Status bar ── */}
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg border"
         style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,229,255,0.04)" }}>
-        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusColor, boxShadow: `0 0 6px ${statusColor}` }} />
 
-        {/* CR / Account ID badge */}
-        {loginid && <CrBadge loginid={loginid} />}
+        <div className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{ background: statusColor, boxShadow: `0 0 6px ${statusColor}` }} />
 
+        {/* CR badge — clicking opens/closes account switcher when multiple accounts exist */}
+        {loginid && (
+          multiAcct ? (
+            <button
+              onClick={() => setShowAccts((p) => !p)}
+              className="flex items-center gap-1 rounded transition-opacity hover:opacity-80 focus:outline-none"
+              title="Click to switch account"
+            >
+              <CrBadge loginid={loginid} />
+              <ChevronDown
+                size={10}
+                className={`transition-transform duration-200 ${showAccts ? "rotate-180" : ""}`}
+                style={{ color: "rgba(0,229,255,0.5)" }}
+              />
+            </button>
+          ) : (
+            <CrBadge loginid={loginid} />
+          )
+        )}
+
+        {/* Balance */}
         <div className="flex items-center gap-1.5">
           <DollarSign size={12} className="text-primary flex-shrink-0" />
           <span className="font-orbitron text-sm font-bold">
@@ -424,12 +446,15 @@ export default function DerivConnectionBar() {
             <span className="text-xs text-muted-foreground">{deriv.account?.currency}</span>
           </span>
           {deriv.account?.is_virtual ? (
-            <span className="font-rajdhani text-[10px] px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(250,204,21,0.15)", color: "#facc15" }}>DEMO</span>
+            <span className="font-rajdhani text-[10px] px-1.5 py-0.5 rounded font-bold"
+              style={{ background: "rgba(250,204,21,0.15)", color: "#facc15" }}>DEMO</span>
           ) : (
-            <span className="font-rajdhani text-[10px] px-1.5 py-0.5 rounded font-bold" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>REAL</span>
+            <span className="font-rajdhani text-[10px] px-1.5 py-0.5 rounded font-bold"
+              style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>REAL</span>
           )}
         </div>
 
+        {/* Demo top-up */}
         {deriv.account?.is_virtual && (
           <button onClick={handleDemoReset} disabled={resetting}
             className="flex items-center gap-1 px-2 py-1 rounded font-orbitron text-[9px] font-bold transition-all disabled:opacity-40"
@@ -438,19 +463,14 @@ export default function DerivConnectionBar() {
           </button>
         )}
 
-        {deriv.accountList.length > 1 && (
-          <button onClick={() => setShowAccts((p) => !p)}
-            className="flex items-center gap-1 ml-1 font-orbitron text-[10px] text-muted-foreground hover:text-primary transition-colors">
-            <User size={10} /> <ChevronDown size={9} className={showAccts ? "rotate-180" : ""} />
-          </button>
-        )}
-
+        {/* Disconnect */}
         <button onClick={handleDisconnect}
           className="ml-auto flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-red-400 transition-colors">
           <LogOut size={11} /> Disconnect
         </button>
       </div>
 
+      {/* Demo top-up feedback */}
       {demoMsg && (
         <div className="font-rajdhani text-xs text-center py-1"
           style={{ color: demoMsg.includes("topped") ? "#22c55e" : "#ef4444" }}>
@@ -458,25 +478,73 @@ export default function DerivConnectionBar() {
         </div>
       )}
 
-      {showAccts && (
-        <div className="rounded-lg border overflow-hidden" style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,0,0,0.4)" }}>
-          {deriv.accountList.map((item) => (
-            <button key={item.loginid}
-              onClick={() => { deriv.switchAccount(item); setShowAccts(false); }}
-              className="w-full flex items-center justify-between px-3 py-2 hover:bg-white/5 transition-colors border-b last:border-0"
-              style={{
-                borderColor: "rgba(0,229,255,0.08)",
-                background: deriv.account?.loginid === item.loginid ? "rgba(0,229,255,0.07)" : "transparent",
-              }}>
-              <div className="flex items-center gap-2">
-                <CrBadge loginid={item.loginid} />
-                <span className="font-rajdhani text-[10px] text-muted-foreground">{item.is_virtual ? "Demo" : "Real"} · {item.currency}</span>
-              </div>
-              {deriv.account?.loginid === item.loginid && (
-                <span className="font-rajdhani text-[9px] text-primary">ACTIVE</span>
-              )}
-            </button>
-          ))}
+      {/* ── Account switcher dropdown ── */}
+      {showAccts && multiAcct && (
+        <div className="rounded-xl border overflow-hidden"
+          style={{ borderColor: "rgba(0,229,255,0.25)", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}>
+
+          <div className="px-3 py-2 border-b flex items-center justify-between"
+            style={{ borderColor: "rgba(0,229,255,0.12)", background: "rgba(0,229,255,0.04)" }}>
+            <span className="font-orbitron text-[9px] font-bold text-primary tracking-widest">SWITCH ACCOUNT</span>
+            <button onClick={() => setShowAccts(false)}
+              className="font-rajdhani text-[10px] text-muted-foreground hover:text-foreground transition-colors">✕</button>
+          </div>
+
+          {deriv.accountList.map((item) => {
+            const isActive  = deriv.account?.loginid === item.loginid;
+            const hasToken  = !!(item.token ?? getStoredToken(item.loginid));
+            const isCrAcct  = /^[A-Z]{2}\d{5,7}$/.test(item.loginid);
+
+            return (
+              <button
+                key={item.loginid}
+                onClick={() => {
+                  if (!isActive && hasToken) {
+                    deriv.switchAccount(item);
+                    setShowAccts(false);
+                  }
+                }}
+                disabled={isActive || !hasToken}
+                className="w-full flex items-center justify-between px-3 py-3 border-b last:border-0 transition-all"
+                style={{
+                  borderColor: "rgba(0,229,255,0.08)",
+                  background: isActive
+                    ? `rgba(0,229,255,0.08)`
+                    : hasToken ? "transparent" : "rgba(239,68,68,0.03)",
+                  cursor: isActive ? "default" : hasToken ? "pointer" : "not-allowed",
+                }}
+                onMouseEnter={(e) => { if (!isActive && hasToken) (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.04)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = isActive ? "rgba(0,229,255,0.08)" : "transparent"; }}
+              >
+                <div className="flex items-center gap-2.5">
+                  {/* Live status dot for active account */}
+                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{
+                      background: isActive ? "#22c55e" : "rgba(255,255,255,0.15)",
+                      boxShadow: isActive ? "0 0 4px #22c55e" : "none",
+                    }} />
+                  <CrBadge loginid={item.loginid} />
+                  <div className="flex flex-col items-start gap-0.5">
+                    <span className="font-rajdhani text-xs" style={{ color: isCrAcct ? "#00e5ff" : "#facc15" }}>
+                      {item.is_virtual ? "Demo" : "Real"} · {item.currency}
+                    </span>
+                    {!hasToken && (
+                      <span className="font-rajdhani text-[9px] text-red-400">No token — re-login to unlock</span>
+                    )}
+                  </div>
+                </div>
+                <div className="font-rajdhani text-[9px] tracking-wider font-bold">
+                  {isActive ? (
+                    <span style={{ color: "#22c55e" }}>● ACTIVE</span>
+                  ) : hasToken ? (
+                    <span style={{ color: "rgba(0,229,255,0.5)" }}>TAP TO SWITCH →</span>
+                  ) : (
+                    <span style={{ color: "rgba(239,68,68,0.6)" }}>NO TOKEN</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

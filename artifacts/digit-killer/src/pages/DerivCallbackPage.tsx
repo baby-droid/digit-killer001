@@ -137,17 +137,21 @@ export default function DerivCallbackPage() {
     // oauth.deriv.com returns: ?token1=TRADING_TOKEN&loginid1=CR123456[&token2=...&loginid2=...]
     // The token here IS a direct WS trading token compatible with authorize.
     let chosenToken: string | null = null;
+    let chosenLoginid: string | null = null;
 
+    // Collect ALL account tokens so the user can switch between them in the app
+    const allAccountTokens: Record<string, string> = {};
     for (let i = 1; i <= 10; i++) {
       const token   = params.get(`token${i}`);
       const loginid = params.get(`loginid${i}`) ?? params.get(`acct${i}`);
-      if (token) {
-        if (!chosenToken) chosenToken = token;
-        // Prefer first real (non-VR) account
-        if (loginid && !loginid.startsWith("VR")) {
-          chosenToken = token;
-          break;
-        }
+      if (!token) break;
+      if (loginid) allAccountTokens[loginid] = token;
+      if (!chosenToken) { chosenToken = token; chosenLoginid = loginid; }
+      // Prefer first real (non-VR) account
+      if (loginid && !loginid.startsWith("VR") && !loginid.startsWith("VRTC")) {
+        chosenToken   = token;
+        chosenLoginid = loginid;
+        // Don't break — keep collecting other accounts
       }
     }
     // Fallback: plain ?token= param
@@ -161,7 +165,13 @@ export default function DerivCallbackPage() {
       localStorage.removeItem("deriv_otp_currency");
       localStorage.removeItem("deriv_otp_virtual");
 
+      // Store the primary token for auto-connect and ALL tokens for account switching
       localStorage.setItem("deriv_token", chosenToken);
+      if (Object.keys(allAccountTokens).length > 0) {
+        localStorage.setItem("deriv_account_tokens", JSON.stringify(allAccountTokens));
+      }
+      if (chosenLoginid) localStorage.setItem("deriv_active_loginid", chosenLoginid);
+
       setStage("success");
       setTimeout(() => setLocation("/dashboard"), 1200);
       return;

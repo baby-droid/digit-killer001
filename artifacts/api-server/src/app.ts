@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -39,20 +40,27 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
-// ── Static frontend in production ────────────────────────────────────────────
-// When NODE_ENV=production the API server also serves the built Vite output so
-// that a single port handles everything — making the deployed app identical to
-// the local preview.  The catch-all must come AFTER all /api routes.
-if (process.env["NODE_ENV"] === "production") {
-  const staticDir = path.resolve(__dirname, "../../digit-killer/dist/public");
-  app.use(express.static(staticDir, { maxAge: "1d" }));
+// ── Static frontend ───────────────────────────────────────────────────────────
+// In production, always serve the built Vite output from this server.
+// In development, also serve it if the build output already exists — this lets
+// the preview pane at port 8080 match the published app exactly.
+// The catch-all must come AFTER all /api routes.
+const staticDir   = path.resolve(__dirname, "../../digit-killer/dist/public");
+const isProduction = process.env["NODE_ENV"] === "production";
+const buildExists  = fs.existsSync(path.join(staticDir, "index.html"));
+
+if (isProduction || buildExists) {
+  app.use(express.static(staticDir, {
+    maxAge: isProduction ? "1d" : "0",
+    etag:   true,
+  }));
 
   // SPA fallback — let React Router handle all non-asset routes
-  app.get("*", (_req, res) => {
+  app.get("*splat", (_req, res) => {
     res.sendFile(path.join(staticDir, "index.html"));
   });
 
-  logger.info({ staticDir }, "Serving frontend static files");
+  logger.info({ staticDir, isProduction, buildExists }, "Serving frontend static files");
 }
 
 export default app;

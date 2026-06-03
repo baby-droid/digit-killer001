@@ -229,9 +229,12 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
         dispatch(msg);
 
         if (msgType === "authorize") {
-          const auth    = msg.authorize as Record<string, unknown>;
-          const acctList = (auth.account_list as DerivAccountListItem[] | undefined) ?? [];
-          setAccountList(acctList);
+          const auth     = msg.authorize as Record<string, unknown>;
+          const raw      = (auth.account_list as DerivAccountListItem[] | undefined) ?? [];
+          // Merge any tokens stored from the OAuth callback (token1/token2/…)
+          // so switchAccount works even when Deriv omits tokens in account_list
+          const merged   = mergeStoredTokens(raw);
+          setAccountList(merged);
           const acct: DerivAccount = {
             loginid:    auth.loginid    as string,
             currency:   auth.currency   as string,
@@ -407,15 +410,40 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
       ws.current.close(1000);
       ws.current = null;
     }
+    // Clear all stored auth state
+    localStorage.removeItem("deriv_token");
+    localStorage.removeItem("deriv_account_tokens");
+    localStorage.removeItem("deriv_active_loginid");
+    localStorage.removeItem("deriv_access_token");
+    localStorage.removeItem("deriv_otp_account_id");
+    localStorage.removeItem("deriv_otp_loginid");
+    localStorage.removeItem("deriv_otp_currency");
+    localStorage.removeItem("deriv_otp_virtual");
     setStatus("disconnected"); setAccount(null); setAccountList([]); setBalance(null); setError(null);
     authorizedRef.current = false;
     listeners.current.clear();
   }, [cancelReconnect]);
 
+  // ── Token helpers ───────────────────────────────────────────────────────────
+  function getStoredTokens(): Record<string, string> {
+    try { return JSON.parse(localStorage.getItem("deriv_account_tokens") ?? "{}") as Record<string, string>; }
+    catch { return {}; }
+  }
+  function mergeStoredTokens(list: DerivAccountListItem[]): DerivAccountListItem[] {
+    const stored = getStoredTokens();
+    return list.map((a) => ({ ...a, token: a.token ?? stored[a.loginid] }));
+  }
+
   const switchAccount = useCallback((item: DerivAccountListItem) => {
-    if (!item.token) return;
-    const id = reqIdRef.current++;
-    send({ authorize: item.token, req_id: id });
+    const stored = getStoredTokens();
+    const token  = item.token ?? stored[item.loginid];
+    if (!token) return;
+    // Update active token so reconnect and auto-restore use the switched account
+    localStorage.setItem("deriv_token", token);
+    localStorage.setItem("deriv_active_loginid", item.loginid);
+    lastAuthPayloadRef.current = { type: "auth", token };
+    send({ authorize: token, req_id: reqIdRef.current++ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [send]);
 
   const topupDemo = useCallback(() => request({ topup_virtual: 1 }), [request]);
