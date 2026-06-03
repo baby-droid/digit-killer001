@@ -1,8 +1,9 @@
 # See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# compiled output
-dist
-tmp
+# compiled output — ignore build artefacts in app packages, NOT lib type declarations
+artifacts/*/dist
+artifacts/*/tmp
+artifacts/mockup-sandbox/dist
 out-tsc
 *.tsbuildinfo
 .expo

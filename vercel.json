@@ -1,0 +1,9 @@
+{
+  "github": {
+    "enabled": false
+  },
+  "installCommand": "pnpm install",
+  "buildCommand": "npx tsc --build lib/db/tsconfig.json lib/api-zod/tsconfig.json && pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/digit-killer run build",
+  "framework": null,
+  "outputDirectory": "artifacts/digit-killer/dist/public"
+}

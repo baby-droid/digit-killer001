@@ -1,0 +1,1 @@
+{"version":3,"file":"aiSignals.d.ts","sourceRoot":"","sources":["../../../src/generated/types/aiSignals.ts"],"names":[],"mappings":"AAAA;;;;;;GAMG;AACH,OAAO,KAAK,EAAE,QAAQ,EAAE,MAAM,YAAY,CAAC;AAE3C,MAAM,WAAW,SAAS;IACxB,MAAM,EAAE,MAAM,CAAC;IACf,OAAO,EAAE,QAAQ,EAAE,CAAC;IACpB,YAAY,EAAE,MAAM,CAAC;IACrB,gBAAgB,CAAC,EAAE,MAAM,CAAC;CAC3B"}
