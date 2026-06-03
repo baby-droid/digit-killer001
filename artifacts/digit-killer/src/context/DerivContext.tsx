@@ -200,7 +200,20 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
         if (msgType === "authorize") {
           const auth    = msg.authorize as Record<string, unknown>;
           const acctList = (auth.account_list as DerivAccountListItem[] | undefined) ?? [];
-          setAccountList(acctList);
+
+          // Merge tokens stored during OAuth callback (token1, token2…) into
+          // accountList. Deriv's account_list response doesn't include tokens for
+          // sibling accounts, but DerivCallbackPage stores them as deriv_token_map.
+          let storedMap: Record<string, string> = {};
+          try {
+            storedMap = JSON.parse(localStorage.getItem("deriv_token_map") ?? "{}") as Record<string, string>;
+          } catch { /* ignore */ }
+          const enrichedList: DerivAccountListItem[] = acctList.map((item) => ({
+            ...item,
+            token: (item.token as string | undefined) ?? storedMap[item.loginid] ?? undefined,
+          }));
+
+          setAccountList(enrichedList);
           const acct: DerivAccount = {
             loginid:    auth.loginid    as string,
             currency:   auth.currency   as string,
