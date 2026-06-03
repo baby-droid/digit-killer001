@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSymbol } from "@/context/SymbolContext";
-import { Activity, Brain, BarChart3, TrendingUp, Download, RefreshCw, FileText, Target } from "lucide-react";
+import { Activity, Brain, BarChart3, TrendingUp, Download, RefreshCw, FileText, Target, Clock, AlertTriangle } from "lucide-react";
+import { computeSmartTicks } from "@/lib/tickConfirmation";
 
 const DIGIT_COLORS: Record<number, string> = {
   0: "#00e5d4", 1: "#448aff", 2: "#ce93d8", 3: "#00c853", 4: "#ff9100",
@@ -159,6 +160,22 @@ interface Strategy {
   ticks: number;
   confidence: number;
   reasoning: string;
+}
+
+function strategyContractType(signal: string): string {
+  if (signal === "MATCH") return "DIGITMATCH";
+  if (signal === "DIFFER") return "DIGITDIFF";
+  if (signal === "EVEN") return "DIGITEVEN";
+  if (signal === "ODD") return "DIGITODD";
+  if (signal.startsWith("OVER")) return "DIGITOVER";
+  if (signal.startsWith("UNDER")) return "DIGITUNDER";
+  return "DIGITMATCH";
+}
+
+function strategyBarrier(signal: string, digit: number | undefined): number | undefined {
+  const match = signal.match(/(\d+)$/);
+  if (match) return parseInt(match[1]);
+  return digit;
 }
 
 function generateStrategies(data: AdvancedData): Strategy[] {
@@ -378,7 +395,7 @@ export default function ReportsPage() {
   const [sampleSize, setSampleSize] = useState(1000);
   const [inputVal, setInputVal] = useState("1000");
 
-  const { data, isLoading, refetch } = useQuery<AdvancedData>({
+  const { data, isLoading, isError, error, refetch } = useQuery<AdvancedData>({
     queryKey: ["/api/advanced-analysis", symbol, sampleSize],
     queryFn: async () => {
       const res = await fetch(`/api/advanced-analysis?symbol=${symbol}&count=${sampleSize}`);
@@ -466,6 +483,23 @@ export default function ReportsPage() {
         </div>
       )}
 
+      {isError && !data && (
+        <div className="cyber-card p-8 flex flex-col items-center gap-4">
+          <AlertTriangle size={36} className="text-yellow-400" style={{ filter: "drop-shadow(0 0 8px #facc15)" }} />
+          <div className="font-orbitron text-sm text-yellow-400 tracking-widest">ANALYSIS FAILED</div>
+          <div className="font-rajdhani text-xs text-muted-foreground text-center max-w-md">
+            {error instanceof Error ? error.message : "Failed to compute ML models. Ensure the API Server workflow is running."}
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg font-orbitron text-xs font-bold tracking-wider transition-all"
+            style={{ background: "rgba(0,229,255,0.1)", border: "1px solid rgba(0,229,255,0.4)", color: "#00e5ff" }}
+          >
+            <RefreshCw size={12} /> Retry
+          </button>
+        </div>
+      )}
+
       {data && (
         <>
           {/* Summary strip */}
@@ -510,44 +544,56 @@ export default function ReportsPage() {
               </div>
 
               {/* Top signal hero */}
-              {strategies[0] && (
-                <div
-                  className="p-4 rounded-xl mb-4 flex flex-wrap items-center gap-4"
-                  style={{ background: "linear-gradient(135deg, rgba(0,229,255,0.08), rgba(0,200,83,0.06))", border: "1px solid rgba(0,229,255,0.25)" }}
-                >
-                  <div>
-                    <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1">Top Signal</div>
-                    <div className="font-orbitron text-2xl font-black text-primary">
-                      {strategies[0].signal}
-                      {strategies[0].digit !== undefined && (
-                        <span className="ml-2 text-xl" style={{ color: DIGIT_COLORS[strategies[0].digit] }}>
-                          digit {strategies[0].digit}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-6">
+              {strategies[0] && (() => {
+                const topContractType = strategyContractType(strategies[0].signal);
+                const topBarrier = strategyBarrier(strategies[0].signal, strategies[0].digit);
+                const topAiTicks = computeSmartTicks(topContractType, topBarrier, []);
+                return (
+                  <div
+                    className="p-4 rounded-xl mb-4 flex flex-wrap items-center gap-4"
+                    style={{ background: "linear-gradient(135deg, rgba(0,229,255,0.08), rgba(0,200,83,0.06))", border: "1px solid rgba(0,229,255,0.25)" }}
+                  >
                     <div>
-                      <div className="font-rajdhani text-[10px] text-muted-foreground">Contract</div>
-                      <div className="font-orbitron font-bold text-lg text-foreground">{strategies[0].ticks} tick{strategies[0].ticks > 1 ? "s" : ""}</div>
-                    </div>
-                    <div>
-                      <div className="font-rajdhani text-[10px] text-muted-foreground">Confidence</div>
-                      <div className="font-orbitron font-bold text-lg" style={{ color: strategies[0].confidence > 70 ? "#00c853" : strategies[0].confidence > 55 ? "#ffd600" : "#ff9100" }}>
-                        {strategies[0].confidence.toFixed(0)}%
+                      <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1">Top Signal</div>
+                      <div className="font-orbitron text-2xl font-black text-primary">
+                        {strategies[0].signal}
+                        {strategies[0].digit !== undefined && (
+                          <span className="ml-2 text-xl" style={{ color: DIGIT_COLORS[strategies[0].digit] }}>
+                            digit {strategies[0].digit}
+                          </span>
+                        )}
                       </div>
                     </div>
+                    <div className="flex gap-6 flex-wrap">
+                      <div>
+                        <div className="font-rajdhani text-[10px] text-muted-foreground">Contract</div>
+                        <div className="font-orbitron font-bold text-lg text-foreground">{strategies[0].ticks} tick{strategies[0].ticks > 1 ? "s" : ""}</div>
+                      </div>
+                      <div>
+                        <div className="font-rajdhani text-[10px] text-muted-foreground">Confidence</div>
+                        <div className="font-orbitron font-bold text-lg" style={{ color: strategies[0].confidence > 70 ? "#00c853" : strategies[0].confidence > 55 ? "#ffd600" : "#ff9100" }}>
+                          {strategies[0].confidence.toFixed(0)}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-rajdhani text-[10px] text-muted-foreground flex items-center gap-1"><Clock size={9} /> AI Tick Confirm</div>
+                        <div className="font-orbitron font-bold text-lg text-primary">{topAiTicks}T</div>
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-rajdhani text-xs text-muted-foreground">{strategies[0].reasoning}</div>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-rajdhani text-xs text-muted-foreground">{strategies[0].reasoning}</div>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* All strategies grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {strategies.map((s, i) => {
                   const confColor = s.confidence > 70 ? "#00c853" : s.confidence > 55 ? "#ffd600" : "#ff9100";
+                  const contractType = strategyContractType(s.signal);
+                  const barrier = strategyBarrier(s.signal, s.digit);
+                  const aiTicks = computeSmartTicks(contractType, barrier, []);
                   return (
                     <div
                       key={i}
@@ -558,12 +604,19 @@ export default function ReportsPage() {
                         <span className="font-rajdhani font-bold text-xs text-muted-foreground tracking-widest">{s.name}</span>
                         <span className="font-orbitron text-xs font-bold" style={{ color: confColor }}>{s.confidence.toFixed(0)}%</span>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <span className="font-orbitron font-black text-base text-primary">{s.signal}</span>
                         {s.digit !== undefined && (
                           <span className="font-orbitron font-bold text-base" style={{ color: DIGIT_COLORS[s.digit] }}>digit {s.digit}</span>
                         )}
-                        <span className="ml-auto font-rajdhani text-xs text-muted-foreground">{s.ticks}T contract</span>
+                        <span className="font-rajdhani text-xs text-muted-foreground">{s.ticks}T</span>
+                        <span
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded font-orbitron text-[9px] font-bold"
+                          style={{ background: "rgba(0,229,255,0.1)", border: "1px solid rgba(0,229,255,0.3)", color: "#00e5ff" }}
+                          title="AI-recommended tick duration based on contract type &amp; barrier"
+                        >
+                          <Clock size={9} /> AI: {aiTicks}T
+                        </span>
                       </div>
                       <div className="h-1 bg-muted rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all" style={{ width: `${s.confidence}%`, background: confColor }} />

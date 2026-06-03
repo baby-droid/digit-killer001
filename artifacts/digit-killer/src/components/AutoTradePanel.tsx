@@ -29,6 +29,8 @@ export interface TradeSignal {
   psych_score?: number;
   psych_win_rate_10?: number;
   psych_streak?: number;
+  /** Override trading symbol for this specific signal (multi-market support) */
+  symbol?: string;
 }
 
 interface AutoTradePanelProps {
@@ -124,18 +126,19 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page", re
 
   async function execute(sig: TradeSignal) {
     if (deriv.status !== "connected" || blocked || executing) return;
-    const currency = deriv.account?.currency ?? "USD";
-    const groupId  = bulkGroupId();
-    const count    = Math.max(1, bulkCount);
-    const stake    = currentStake;
-    const ticks    = tickOverride === "signal"
+    const currency  = deriv.account?.currency ?? "USD";
+    const groupId   = bulkGroupId();
+    const count     = Math.max(1, bulkCount);
+    const stake     = currentStake;
+    const sigSymbol = sig.symbol ?? symbol;
+    const ticks     = tickOverride === "signal"
       ? computeSmartTicks(sig.contract_type, sig.barrier, recentDigits)
       : tickOverride;
 
     setExecuting(true);
     const specs: TradeSpec[] = Array.from({ length: count }, (_, i) => ({
       contract_type: sig.contract_type,
-      symbol,
+      symbol: sigSymbol,
       stake,
       ticks,
       barrier: sig.barrier,
@@ -170,7 +173,7 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page", re
     const specs: TradeSpec[] = readySignals.flatMap((sig) =>
       Array.from({ length: count }, (_, i) => ({
         contract_type: sig.contract_type,
-        symbol,
+        symbol: sig.symbol ?? symbol,  // per-signal symbol for multi-market support
         stake,
         ticks: tickOverride === "signal"
           ? computeSmartTicks(sig.contract_type, sig.barrier, recentDigits)
