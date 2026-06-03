@@ -86,6 +86,7 @@ interface LegConfig {
   contract: ContractOption;
   stake: number; martingaleOn: boolean; martMult: number;
   lossStreak: number; ticks: number;
+  barrierOverride?: number;
 }
 
 // ── P&L sparkline ──────────────────────────────────────────────────────────────
@@ -206,6 +207,31 @@ function LegCard({
           ))}
         </div>
       </div>
+
+      {/* Barrier override (Over / Under only) */}
+      {(leg.contract.contract_type === "DIGITOVER" || leg.contract.contract_type === "DIGITUNDER") && (
+        <div>
+          <div className="font-rajdhani text-[10px] text-muted-foreground tracking-widest uppercase mb-1.5">
+            Barrier · <span style={{ color }} className="font-orbitron font-bold">
+              {leg.barrierOverride ?? leg.contract.barrier}
+            </span>
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {(leg.contract.contract_type === "DIGITOVER"
+              ? [0, 1, 2, 3, 4, 5, 6, 7, 8]
+              : [1, 2, 3, 4, 5, 6, 7, 8, 9]
+            ).map((v) => (
+              <button key={v} onClick={() => onChange({ barrierOverride: v })}
+                className="px-2 py-1 rounded font-orbitron text-[10px] font-bold transition-all"
+                style={(leg.barrierOverride ?? leg.contract.barrier) === v
+                  ? { background: color, color: "#050a0f" }
+                  : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#aaa" }}>
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stake */}
       <div>
@@ -523,13 +549,21 @@ export default function HedgeTradingPage() {
     const specs: TradeSpec[] = [
       {
         contract_type: legA.contract.contract_type, symbol, stake: stakeA,
-        ticks: legA.ticks, barrier: legA.contract.barrier, digit: legA.contract.digit,
+        ticks: legA.ticks,
+        barrier: (legA.contract.contract_type === "DIGITOVER" || legA.contract.contract_type === "DIGITUNDER")
+          ? (legA.barrierOverride ?? legA.contract.barrier)
+          : legA.contract.barrier,
+        digit: legA.contract.digit,
         label: `A: ${legA.contract.label}${aiConfirm && aiLegA?.found ? ` [AI ${aiLegA.confidence.toFixed(0)}%]` : ""}`,
         confidence: aiLegA?.confidence ?? 100, bulk_group: gid, bulk_index: 0, bulk_total: 2,
       },
       {
         contract_type: legB.contract.contract_type, symbol, stake: stakeB,
-        ticks: legB.ticks, barrier: legB.contract.barrier, digit: legB.contract.digit,
+        ticks: legB.ticks,
+        barrier: (legB.contract.contract_type === "DIGITOVER" || legB.contract.contract_type === "DIGITUNDER")
+          ? (legB.barrierOverride ?? legB.contract.barrier)
+          : legB.contract.barrier,
+        digit: legB.contract.digit,
         label: `B: ${legB.contract.label}${aiConfirm && aiLegB?.found ? ` [AI ${aiLegB.confidence.toFixed(0)}%]` : ""}`,
         confidence: aiLegB?.confidence ?? 100, bulk_group: gid, bulk_index: 1, bulk_total: 2,
       },

@@ -431,6 +431,7 @@ export default function OverUnderPage() {
       <AutoTradePanel
         symbol={symbol}
         pageLabel="Over/Under"
+        recentDigits={last5}
         signals={entries.map((e): TradeSignal => {
           const parts = e.contract.split(" ");
           const isOver = parts[0] === "OVER";
