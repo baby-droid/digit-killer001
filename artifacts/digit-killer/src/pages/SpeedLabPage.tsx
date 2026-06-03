@@ -335,18 +335,18 @@ export default function SpeedLabPage() {
 
       const { signals } = result.value;
 
-      // Pick best signal matching selected contracts above threshold
-      let bestSig: AiSignal | null = null;
-      let bestCid: string | null   = null;
-
+      // Collect ALL qualifying signals matching selected contracts above threshold
+      const qualifyingSigs: Array<{ sig: AiSignal; cid: string; def: NonNullable<ReturnType<typeof ALL_CONTRACTS.find>> }> = [];
       for (const sig of signals) {
         if (sig.confidence < confidenceThresh) continue;
         const cid = signalToContractId(sig);
         if (!cid || !selectedContracts.includes(cid)) continue;
-        bestSig = sig; bestCid = cid; break;
+        const def = ALL_CONTRACTS.find((c) => c.id === cid);
+        if (!def) continue;
+        qualifyingSigs.push({ sig, cid, def });
       }
 
-      if (!bestSig || !bestCid) {
+      if (qualifyingSigs.length === 0) {
         newScans[mkt] = {
           status: "no_signal",
           reason: `No signal ≥${confidenceThresh}% in your contract list`,
@@ -354,27 +354,30 @@ export default function SpeedLabPage() {
         continue;
       }
 
-      const def = ALL_CONTRACTS.find((c) => c.id === bestCid);
-      if (!def) continue;
-
+      // Record the best (first = highest confidence) for scan display
+      const { sig: topSig, cid: topCid } = qualifyingSigs[0];
       newScans[mkt] = {
-        status: "picked", contractId: bestCid,
-        contract_type: bestSig.contract_type,
-        confidence: bestSig.confidence,
-        reason: bestSig.reason ?? "",
-        strategy: bestSig.strategy ?? "",
+        status: "picked", contractId: topCid,
+        contract_type: topSig.contract_type,
+        confidence: topSig.confidence,
+        reason: topSig.reason ?? "",
+        strategy: topSig.strategy ?? "",
       };
 
+      // Use the same tick duration for all signals in this batch → same exit spot
+      const batchTicks = topSig.ticks ?? ticksMap[topCid] ?? qualifyingSigs[0].def.defaultTicks;
       const mktLabel = ALL_MARKETS.find((m) => m.key === mkt)?.label ?? mkt;
-      specs.push({
-        contract_type: bestSig.contract_type, symbol: mkt, stake: currentStake,
-        ticks: bestSig.ticks ?? ticksMap[bestCid] ?? def.defaultTicks,
-        barrier: bestSig.barrier, digit: bestSig.digit,
-        label: `[AI ${bestSig.confidence.toFixed(0)}%] ${mktLabel} · ${def.label}`,
-        confidence: bestSig.confidence,
-        bulk_group: undefined as unknown as string,
-        bulk_index: 0, bulk_total: 0,
-      });
+      for (const { sig, def } of qualifyingSigs) {
+        specs.push({
+          contract_type: sig.contract_type, symbol: mkt, stake: currentStake,
+          ticks: batchTicks,
+          barrier: sig.barrier, digit: sig.digit,
+          label: `[AI ${sig.confidence.toFixed(0)}%] ${mktLabel} · ${def.label}`,
+          confidence: sig.confidence,
+          bulk_group: undefined as unknown as string,
+          bulk_index: 0, bulk_total: 0,
+        });
+      }
     }
 
     setAiScans(newScans);

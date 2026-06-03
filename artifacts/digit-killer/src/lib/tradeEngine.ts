@@ -103,7 +103,8 @@ export async function executeBulk(
         return Promise.reject(result.reason);
       }
       const prop = result.value.proposal as Record<string, unknown>;
-      return request({ buy: prop.id as string, price: specs[i].stake });
+      const askPrice = (prop.ask_price as number | undefined) ?? specs[i].stake;
+      return request({ buy: prop.id as string, price: askPrice });
     })
   );
 

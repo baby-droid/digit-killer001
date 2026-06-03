@@ -185,14 +185,14 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
     setExecuting(false);
   }
 
-  // ── Auto mode: fire when new best signal appears ──────────────────────────
+  // ── Auto mode: fire ALL ready signals when signal set changes ────────────
   useEffect(() => {
-    if (!autoMode || !bestSignal || deriv.status !== "connected" || executing || blocked) return;
+    if (!autoMode || readySignals.length === 0 || deriv.status !== "connected" || executing || blocked) return;
     if (limitHit) { setAutoMode(false); return; }
-    const key = `${bestSignal.contract_type}-${bestSignal.confidence.toFixed(1)}`;
+    const key = readySignals.map((s) => `${s.contract_type}-${s.confidence.toFixed(1)}`).join("|");
     if (key === lastAutoKeyRef.current) return;
     lastAutoKeyRef.current = key;
-    void execute(bestSignal);
+    void handleBulkAll();
   });
 
   // ── Collapsed button ──────────────────────────────────────────────────────

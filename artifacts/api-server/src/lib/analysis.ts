@@ -37,7 +37,7 @@ export function computeOverUnderSignals(digits: DigitStats[], prices: number[], 
 
   // ── Barrier definitions ──────────────────────────────────────
   const OVER_DEFS = [
-    { barrier: 0, risk: "Very Low", ticks: "1"   },
+    { barrier: 0, risk: "Very Low", ticks: "2"   },
     { barrier: 1, risk: "Low",      ticks: "1-2" },
     { barrier: 2, risk: "Low",      ticks: "1-3" },
     { barrier: 3, risk: "Medium",   ticks: "1-3" },
@@ -45,7 +45,7 @@ export function computeOverUnderSignals(digits: DigitStats[], prices: number[], 
     { barrier: 5, risk: "High",     ticks: "1-2" },
   ];
   const UNDER_DEFS = [
-    { barrier: 9, risk: "Very Low", ticks: "1"   },
+    { barrier: 9, risk: "Very Low", ticks: "2"   },
     { barrier: 8, risk: "Low",      ticks: "1-2" },
     { barrier: 7, risk: "Low",      ticks: "1-3" },
     { barrier: 6, risk: "Medium",   ticks: "2-3" },
@@ -365,7 +365,7 @@ export function computeEvenOddAnalysis(prices: number[], pipSize: number) {
     odd_pct:  parseFloat(((oddCount  / total) * 100).toFixed(1)),
     current_digit:   currentDigit,
     preceding_digit: precedingDigit,
-    ticks:           signalReady ? 5 : 3,
+    ticks:           1,
 
     // Ranked display arrays
     even_ranked: evenRanked,
