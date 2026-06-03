@@ -349,10 +349,13 @@ export default function DerivConnectionBar() {
                     style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.15)" }}>
                     <div className="flex items-center gap-2 mb-1">
                       <Key size={11} style={{ color: "#a78bfa" }} />
-                      <span className="font-orbitron text-[10px] font-bold tracking-wider" style={{ color: "#a78bfa" }}>API TOKEN (PAT)</span>
+                      <span className="font-orbitron text-[10px] font-bold tracking-wider" style={{ color: "#a78bfa" }}>API TOKEN / PAT</span>
                     </div>
                     <p className="font-rajdhani text-xs text-muted-foreground leading-relaxed">
-                      Paste your Deriv API token with <strong className="text-foreground">Trade</strong> permission directly.
+                      Paste your Deriv API token or <strong className="text-foreground">Personal Access Token (PAT)</strong> with <strong className="text-foreground">Trade</strong> permission.
+                    </p>
+                    <p className="font-rajdhani text-[10px]" style={{ color: "rgba(139,92,246,0.6)" }}>
+                      Accepts any format: <span style={{ color: "#a78bfa" }}>pat_…</span> or classic token strings
                     </p>
                   </div>
 
@@ -362,7 +365,7 @@ export default function DerivConnectionBar() {
                       value={tokenInput}
                       onChange={(e) => setTokenInput(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") handlePATConnect(); }}
-                      placeholder="Paste Deriv API token…"
+                      placeholder="Paste pat_… or API token here"
                       className="flex-1 px-3 py-2 rounded-lg font-rajdhani text-xs bg-background border border-border text-foreground focus:outline-none focus:border-primary"
                     />
                     <button
@@ -381,7 +384,7 @@ export default function DerivConnectionBar() {
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 font-rajdhani text-[10px] text-muted-foreground hover:text-primary transition-colors"
                   >
-                    <ExternalLink size={9} /> Get API token from Deriv (enable Trade permission)
+                    <ExternalLink size={9} /> Get your API token / PAT from Deriv (enable Trade permission)
                   </a>
                 </>
               )}
