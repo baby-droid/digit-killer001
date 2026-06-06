@@ -10,12 +10,13 @@ const DERIV_WS_PUBLIC   = `wss://api.derivws.com/trading/v1/options/ws/public`;
 const PING_INTERVAL_MS  = 20_000;
 const PONG_TIMEOUT_MS   = 15_000;
 const MAX_RECONNECTS    = 8;
+const RACE_TIMEOUT_MS   = 8_000; // total time to wait when racing both servers
 
 interface Session {
   clientWs:    WebSocket;
   derivWs:     WebSocket | null;
   token:       string | null;
-  otpUrl:      string | null;   // new API: OTP-authenticated WS URL
+  otpUrl:      string | null;
   authorized:  boolean;
   authFailed:  boolean;
   dead:        boolean;
@@ -50,57 +51,9 @@ function cleanup(session: Session) {
   logger.info({ ip: session.ip }, "WS proxy: session cleaned up");
 }
 
-// ── Connect to Deriv WebSocket ───────────────────────────────────────────────
-// Supports both legacy (authorize step) and OTP-authenticated (new API) URLs.
-function connectToDeriv(session: Session, url: string, fallback?: string): void {
-  if (session.dead || session.authFailed) return;
-
-  const isOtp = url.includes("otp=") || url.includes("/ws/demo") || url.includes("/ws/real");
-
-  let derivWs: WebSocket;
-  try {
-    derivWs = new WebSocket(url);
-  } catch (e) {
-    logger.error({ e, url }, "WS proxy: failed to create Deriv socket");
-    sendToClient(session, { type: "proxy_error", message: "Failed to reach Deriv servers" });
-    return;
-  }
-
+// ── Attach the live derivWs to the session and wire up its ongoing handlers ──
+function attachDerivSocket(session: Session, derivWs: WebSocket, url: string): void {
   session.derivWs = derivWs;
-
-  const connectionTimeout = setTimeout(() => {
-    if (derivWs.readyState === WebSocket.CONNECTING) {
-      derivWs.terminate();
-      if (fallback) {
-        logger.warn({ url }, "WS proxy: primary timed out, trying fallback");
-        connectToDeriv(session, fallback);
-      } else {
-        sendToClient(session, { type: "proxy_error", message: "Deriv connection timed out — please reconnect" });
-      }
-    }
-  }, 7_000);
-
-  derivWs.on("open", () => {
-    clearTimeout(connectionTimeout);
-    if (session.dead) { derivWs.close(); return; }
-
-    logger.info({ url, ip: session.ip, app_id: APP_ID }, "WS proxy: connected to Deriv");
-    session.reconnects = 0;
-
-    if (isOtp) {
-      // OTP URL: already authenticated — no authorize step needed
-      session.authorized = true;
-      session.authFailed  = false;
-      sendToClient(session, { type: "proxy_open" });
-      logger.info({ ip: session.ip }, "WS proxy: OTP connection established (pre-authenticated)");
-    } else if (session.token) {
-      // Legacy: send authorize with trading token
-      derivWs.send(JSON.stringify({ authorize: session.token, req_id: 1 }));
-      sendToClient(session, { type: "proxy_open" });
-    } else {
-      sendToClient(session, { type: "proxy_open" });
-    }
-  });
 
   derivWs.on("message", (raw) => {
     if (session.dead) return;
@@ -141,8 +94,7 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
   });
 
   derivWs.on("close", (code, reason) => {
-    clearTimeout(connectionTimeout);
-    if (session.dead) return;
+    if (session.dead || session.derivWs !== derivWs) return;
 
     logger.warn({ code, reason: reason.toString(), ip: session.ip }, "WS proxy: Deriv closed");
     session.derivWs = null;
@@ -153,7 +105,6 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
       return;
     }
 
-    // OTP connections are one-shot — do not reconnect with a stale OTP URL
     if (session.otpUrl) {
       sendToClient(session, {
         type: "proxy_error",
@@ -175,20 +126,130 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
   });
 
   derivWs.on("error", (err) => {
+    logger.error({ err: err.message, url, ip: session.ip }, "WS proxy: Deriv WS error");
+  });
+}
+
+// ── Race primary and fallback simultaneously — use whichever opens first ─────
+function connectToDeriv(session: Session, url: string, fallback?: string): void {
+  if (session.dead || session.authFailed) return;
+
+  const isOtp = url.includes("otp=") || url.includes("/ws/demo") || url.includes("/ws/real");
+
+  // OTP is single-use — no racing, just connect directly
+  if (isOtp || !fallback) {
+    connectSingle(session, url, isOtp);
+    return;
+  }
+
+  // ── Race: open both URLs at the same time, use the faster one ─────────────
+  let won = false;
+  const candidates: WebSocket[] = [];
+
+  const raceTimeout = setTimeout(() => {
+    if (!won && !session.dead) {
+      candidates.forEach((c) => { try { c.terminate(); } catch {} });
+      sendToClient(session, { type: "proxy_error", message: "Deriv connection timed out — please reconnect" });
+      logger.warn({ ip: session.ip }, "WS proxy: race timed out, all candidates failed");
+    }
+  }, RACE_TIMEOUT_MS);
+
+  function tryUrl(candidateUrl: string) {
+    let ws: WebSocket;
+    try { ws = new WebSocket(candidateUrl); }
+    catch (e) {
+      logger.error({ e, url: candidateUrl }, "WS proxy: failed to create Deriv socket");
+      return;
+    }
+    candidates.push(ws);
+
+    ws.on("open", () => {
+      if (won || session.dead) {
+        // Lost the race — discard this socket
+        try { ws.close(1000); } catch {}
+        return;
+      }
+      won = true;
+      clearTimeout(raceTimeout);
+
+      // Discard the other candidate(s)
+      candidates.forEach((c) => { if (c !== ws) { try { c.terminate(); } catch {} } });
+
+      logger.info({ url: candidateUrl, ip: session.ip, app_id: APP_ID }, "WS proxy: connected to Deriv (race winner)");
+      session.reconnects = 0;
+
+      if (session.token) {
+        ws.send(JSON.stringify({ authorize: session.token, req_id: 1 }));
+      }
+      sendToClient(session, { type: "proxy_open" });
+      attachDerivSocket(session, ws, candidateUrl);
+    });
+
+    ws.on("error", (err) => {
+      logger.warn({ err: err.message, url: candidateUrl, ip: session.ip }, "WS proxy: race candidate error");
+      try { ws.terminate(); } catch {}
+    });
+  }
+
+  tryUrl(url);
+  // Stagger the fallback by 300 ms so the primary gets a head start but we
+  // don't wait for it to fully time out before trying the alt.
+  setTimeout(() => { if (!won && !session.dead) tryUrl(fallback); }, 300);
+}
+
+// ── Single (non-racing) connect — used for OTP and reconnects ─────────────────
+function connectSingle(session: Session, url: string, isOtp = false): void {
+  if (session.dead || session.authFailed) return;
+
+  let derivWs: WebSocket;
+  try {
+    derivWs = new WebSocket(url);
+  } catch (e) {
+    logger.error({ e, url }, "WS proxy: failed to create Deriv socket");
+    sendToClient(session, { type: "proxy_error", message: "Failed to reach Deriv servers" });
+    return;
+  }
+
+  session.derivWs = derivWs;
+
+  const connectionTimeout = setTimeout(() => {
+    if (derivWs.readyState === WebSocket.CONNECTING) {
+      derivWs.terminate();
+      sendToClient(session, { type: "proxy_error", message: "Deriv connection timed out — please reconnect" });
+    }
+  }, RACE_TIMEOUT_MS);
+
+  derivWs.on("open", () => {
+    clearTimeout(connectionTimeout);
+    if (session.dead) { derivWs.close(); return; }
+
+    logger.info({ url, ip: session.ip, app_id: APP_ID }, "WS proxy: connected to Deriv");
+    session.reconnects = 0;
+
+    if (isOtp) {
+      session.authorized = true;
+      session.authFailed  = false;
+      sendToClient(session, { type: "proxy_open" });
+      logger.info({ ip: session.ip }, "WS proxy: OTP connection established (pre-authenticated)");
+    } else if (session.token) {
+      derivWs.send(JSON.stringify({ authorize: session.token, req_id: 1 }));
+      sendToClient(session, { type: "proxy_open" });
+    } else {
+      sendToClient(session, { type: "proxy_open" });
+    }
+
+    attachDerivSocket(session, derivWs, url);
+  });
+
+  derivWs.on("error", (err) => {
     clearTimeout(connectionTimeout);
     logger.error({ err: err.message, url, ip: session.ip }, "WS proxy: Deriv WS error");
-
-    if (fallback && !session.authorized && !session.authFailed) {
-      logger.info({ fallback }, "WS proxy: trying fallback URL");
-      connectToDeriv(session, fallback);
-    }
   });
 }
 
 function scheduleReconnect(session: Session) {
   if (session.dead || session.authFailed || session.otpUrl) return;
 
-  // Use MAX_RECONNECTS as the back-off cap, but cycle forever — never give up.
   const exp   = session.reconnects % MAX_RECONNECTS;
   const delay = Math.min(500 * Math.pow(2, exp), 30_000);
   session.reconnects++;
@@ -265,7 +326,7 @@ export function attachWsProxy(server: Server): void {
             session.derivWs = null;
           }
 
-          logger.info({ ip }, "WS proxy: legacy auth token received, connecting to Deriv");
+          logger.info({ ip }, "WS proxy: legacy auth token received, racing Deriv servers");
           connectToDeriv(session, DERIV_WS_PRIMARY, DERIV_WS_ALT);
           return;
         }
@@ -289,7 +350,7 @@ export function attachWsProxy(server: Server): void {
           }
 
           logger.info({ ip }, "WS proxy: OTP connect received, connecting to new Deriv API");
-          connectToDeriv(session, otpUrl); // OTP URL is single-use; no fallback
+          connectToDeriv(session, otpUrl);
           return;
         }
 
