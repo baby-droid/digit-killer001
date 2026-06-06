@@ -720,10 +720,10 @@ function FileUploadPanel({ symbol }: { symbol: string }) {
       if (lower.includes("match") || lower.includes("digit")) {
         const match = lower.match(/digit\s*(\d)/);
         const d = match ? parseInt(match[1]) : 5;
-        detectedSignals.push({ contract_type: "DIGITMATCH", confidence: 65, ticks: 5, digit: d, label: `Match ${d} (from strategy)` });
+        detectedSignals.push({ contract_type: "DIGITMATCH", confidence: 65, ticks: 1, digit: d, label: `Match ${d} (from strategy)` });
       }
       if (lower.includes("differ")) {
-        detectedSignals.push({ contract_type: "DIGITDIFF", confidence: 67, ticks: 5, digit: 0, label: "Differ 0 (from strategy)" });
+        detectedSignals.push({ contract_type: "DIGITDIFF", confidence: 67, ticks: 1, digit: 0, label: "Differ 0 (from strategy)" });
       }
 
       const lines = text.split("\n").filter((l) => l.trim()).length;
@@ -924,8 +924,10 @@ function useComprehensiveSignals(symbol: string): { signals: TradeSignal[]; load
         const differConf = Number(md?.differ_confidence ?? 50);
         const matchPsych  = (md?.match_psychology  as Record<string,unknown> | null) ?? null;
         const differPsych = (md?.differ_psychology as Record<string,unknown> | null) ?? null;
-        if (matchConf > 0)  matchDiffer.push({ contract_type: "DIGITMATCH", confidence: matchConf,  ticks: 5, digit: bestMatch,  label: `Match ${bestMatch}`,  psych_favors_win: matchPsych?.favors_win  as boolean|undefined, psych_score: matchPsych?.psych_score  as number|undefined, psych_win_rate_10: matchPsych?.win_rate_10  as number|undefined });
-        if (differConf > 0) matchDiffer.push({ contract_type: "DIGITDIFF",  confidence: differConf, ticks: 5, digit: bestDiffer, label: `Differ ${bestDiffer}`, psych_favors_win: differPsych?.favors_win as boolean|undefined, psych_score: differPsych?.psych_score as number|undefined, psych_win_rate_10: differPsych?.win_rate_10 as number|undefined });
+        const matchAiTicks  = Number(md?.match_ticks  ?? 1);
+        const differAiTicks = Number(md?.differ_ticks ?? 1);
+        if (matchConf > 0)  matchDiffer.push({ contract_type: "DIGITMATCH", confidence: matchConf,  ticks: matchAiTicks,  digit: bestMatch,  label: `Match ${bestMatch}`,  psych_favors_win: matchPsych?.favors_win  as boolean|undefined, psych_score: matchPsych?.psych_score  as number|undefined, psych_win_rate_10: matchPsych?.win_rate_10  as number|undefined });
+        if (differConf > 0) matchDiffer.push({ contract_type: "DIGITDIFF",  confidence: differConf, ticks: differAiTicks, digit: bestDiffer, label: `Differ ${bestDiffer}`, psych_favors_win: differPsych?.favors_win as boolean|undefined, psych_score: differPsych?.psych_score as number|undefined, psych_win_rate_10: differPsych?.win_rate_10 as number|undefined });
 
         setData({ overUnder, evenOdd, riseFall, matchDiffer });
       } catch {

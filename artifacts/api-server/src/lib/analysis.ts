@@ -428,6 +428,18 @@ export function computeEvenOddAnalysis(prices: number[], pipSize: number) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+//  AI Tick Selection — central tick logic for Match/Differ
+//  1T = strong signal (conf ≥ 70): fire immediately, high-probability setup
+//  2T = medium signal (conf 55–69 or 2 strategies): safety window if 1T delayed
+//  3T = pattern visible (conf < 55 with confirmed pattern): allow pattern to complete
+// ────────────────────────────────────────────────────────────────────────────
+function pickAiTicks(conf: number, strategiesCount: number): number {
+  if (conf >= 70) return 1;
+  if (conf >= 55 || strategiesCount >= 2) return 2;
+  return 3;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 //  AI Confirmation: MATCH strategy engine (PDF strategies)
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -512,8 +524,25 @@ export function computeMatchAiConfirmation(
     if (l4[0] === l4[2] && l4[1] === l4[3] && l4[0] !== l4[1]) {
       const nextDigit = currentDigit === l4[0] ? l4[1] : l4[0];
       strategies.push(`Fractal Mirror: alternating pattern …${l4[0]},${l4[1]},${l4[0]},${l4[1]}`);
-      candidates.push({ digit: nextDigit, conf: 50, strategy: "Fractal Mirror Pattern", ticks: 1,
+      candidates.push({ digit: nextDigit, conf: 54, strategy: "Fractal Mirror Pattern", ticks: 1,
         reason: `Alternating pattern detected — digit ${nextDigit} is the next fractal step` });
+    }
+  }
+
+  // ── Strategy 6: Hot Market Digit (momentum match) ─────────────────────────
+  // Most dominant digit in last 25 ticks — if it appears ≥6× (≥24% vs avg 10%)
+  // it has genuine momentum and is likely to hit again in 1T
+  {
+    const last25 = digits.slice(-25);
+    const freq25 = new Array(10).fill(0);
+    last25.forEach((d) => freq25[d]++);
+    const hotCount = Math.max(...freq25);
+    const hotDigit = freq25.indexOf(hotCount);
+    if (hotCount >= 6 && !candidates.some((c) => c.digit === hotDigit)) {
+      const hotConf = Math.min(84, 50 + (hotCount - 6) * 5);
+      strategies.push(`Hot Market Digit: ${hotDigit} appeared ${hotCount}/25 (${Math.round(hotCount / 25 * 100)}%)`);
+      candidates.push({ digit: hotDigit, conf: hotConf, strategy: "Hot Market Momentum", ticks: 1,
+        reason: `Digit ${hotDigit} is the market leader with ${hotCount}/25 recent appearances — momentum continuation at 1T` });
     }
   }
 
@@ -526,7 +555,8 @@ export function computeMatchAiConfirmation(
     return { digit: coldDigit, confidence: 35, ticks: 1, strategy: "Statistical Minimum",
       fire: false, reason: `Digit ${coldDigit} least frequent in last 50 ticks`, strategies_triggered: [] };
   }
-  return { digit: best.digit, confidence: parseFloat(best.conf.toFixed(1)), ticks: best.ticks,
+  const matchTicks = pickAiTicks(best.conf, strategies.length);
+  return { digit: best.digit, confidence: parseFloat(best.conf.toFixed(1)), ticks: matchTicks,
     strategy: best.strategy, reason: best.reason,
     fire: best.conf >= 65 || (best.conf >= 55 && strategies.length >= 2),
     strategies_triggered: strategies };
@@ -620,7 +650,8 @@ export function computeDifferAiConfirmation(
       fire: false, reason: `Digit ${hotDigit} most frequent in last 50 — probable DIFFER target`,
       strategies_triggered: [] };
   }
-  return { digit: best.digit, confidence: parseFloat(best.conf.toFixed(1)), ticks: best.ticks,
+  const differTicks = pickAiTicks(best.conf, strategies.length);
+  return { digit: best.digit, confidence: parseFloat(best.conf.toFixed(1)), ticks: differTicks,
     strategy: best.strategy, reason: best.reason,
     fire: best.conf >= 65 || (best.conf >= 60 && strategies.length >= 2),
     strategies_triggered: strategies };
