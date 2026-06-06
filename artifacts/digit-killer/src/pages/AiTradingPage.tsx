@@ -316,6 +316,27 @@ export default function AiTradingPage() {
   const allSignals    = useAiSignal(symbol, logicCfg.refreshMs);
   const analysisGroups = useAllAnalysis(symbol, logicCfg.refreshMs);
 
+  // ── MD AI confirmation ───────────────────────────────────────────────────
+  interface MdAiInfo { matchDigit: number; matchConf: number; matchStrategy: string; matchReason: string; matchFire: boolean; differDigit: number; differConf: number; differStrategy: string; differReason: string; differFire: boolean; }
+  const [mdAiInfo, setMdAiInfo] = useState<MdAiInfo | null>(null);
+  useEffect(() => {
+    if (!symbol) return;
+    let dead = false;
+    const run = () => {
+      fetch(`/api/match-differ-signals?symbol=${encodeURIComponent(symbol)}`)
+        .then(r => r.json())
+        .then((data: Record<string, unknown>) => {
+          if (dead) return;
+          const mc = data.match_confirmation as { digit: number; confidence: number; strategy: string; reason: string; fire: boolean } | undefined;
+          const dc = data.differ_confirmation as { digit: number; confidence: number; strategy: string; reason: string; fire: boolean } | undefined;
+          if (mc && dc) setMdAiInfo({ matchDigit: mc.digit, matchConf: mc.confidence, matchStrategy: mc.strategy, matchReason: mc.reason, matchFire: mc.fire, differDigit: dc.digit, differConf: dc.confidence, differStrategy: dc.strategy, differReason: dc.reason, differFire: dc.fire });
+        }).catch(() => {});
+    };
+    run();
+    const t = setInterval(run, logicCfg.refreshMs);
+    return () => { dead = true; clearInterval(t); };
+  }, [symbol, logicCfg.refreshMs]);
+
   // ── Apply logic filters to signals ────────────────────────────────────────
   const filteredSignals = allSignals.filter((s) => {
     if (s.confidence < logicCfg.minConfidence) return false;
@@ -793,6 +814,39 @@ export default function AiTradingPage() {
             <div className="w-6 h-6 rounded-full flex items-center justify-center font-orbitron text-xs font-black flex-shrink-0 text-white" style={{ background: DIGIT_COLORS[currentDigit] }}>{currentDigit}</div>
             {bestSignal.reasoning ?? bestSignal.reason ?? "AI analysis"}
           </div>
+          {/* AUTO AI MODE panel for Match/Differ best signal */}
+          {(bestSignal.contract_type === "DIGITMATCH" || bestSignal.contract_type === "DIGITDIFF") && mdAiInfo && (
+            <div className="mt-3 rounded-xl p-3" style={{ background: "rgba(0,229,255,0.07)", border: "1px solid rgba(0,229,255,0.3)" }}>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                <span className="font-orbitron text-[9px] font-bold tracking-widest" style={{ color: "#00e5ff" }}>AUTO AI MODE ON</span>
+                {(bestSignal.contract_type === "DIGITMATCH" ? mdAiInfo.matchFire : mdAiInfo.differFire) && (
+                  <span className="px-1.5 py-0.5 rounded font-orbitron text-[8px] font-bold" style={{ background: "rgba(0,200,83,0.2)", color: "#00c853", border: "1px solid rgba(0,200,83,0.4)" }}>🔥 FIRE</span>
+                )}
+              </div>
+              {bestSignal.contract_type === "DIGITMATCH" ? (
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center font-orbitron text-sm font-black text-white" style={{ background: DIGIT_COLORS[mdAiInfo.matchDigit] }}>{mdAiInfo.matchDigit}</div>
+                    <span className="font-orbitron text-sm font-bold" style={{ color: "#22c55e" }}>Match {mdAiInfo.matchDigit}</span>
+                    <span className="ml-auto font-orbitron text-xs font-bold" style={{ color: mdAiInfo.matchConf >= 70 ? "#22c55e" : mdAiInfo.matchConf >= 55 ? "#facc15" : "#ef4444" }}>{mdAiInfo.matchConf}%</span>
+                  </div>
+                  <div className="font-rajdhani text-[9px] mt-1" style={{ color: "#00e5ff" }}>{mdAiInfo.matchStrategy}</div>
+                  <div className="font-rajdhani text-[9px] text-muted-foreground">{mdAiInfo.matchReason}</div>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center font-orbitron text-sm font-black text-white" style={{ background: DIGIT_COLORS[mdAiInfo.differDigit] }}>{mdAiInfo.differDigit}</div>
+                    <span className="font-orbitron text-sm font-bold" style={{ color: "#ef4444" }}>Differ {mdAiInfo.differDigit}</span>
+                    <span className="ml-auto font-orbitron text-xs font-bold" style={{ color: mdAiInfo.differConf >= 70 ? "#22c55e" : mdAiInfo.differConf >= 55 ? "#facc15" : "#ef4444" }}>{mdAiInfo.differConf}%</span>
+                  </div>
+                  <div className="font-rajdhani text-[9px] mt-1" style={{ color: "#ef4444" }}>{mdAiInfo.differStrategy}</div>
+                  <div className="font-rajdhani text-[9px] text-muted-foreground">{mdAiInfo.differReason}</div>
+                </div>
+              )}
+            </div>
+          )}
           {/* Other passing signals */}
           {filteredSignals.length > 1 && (
             <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>

@@ -181,6 +181,14 @@ export default function MatchDifferPage() {
   const differConf: number   = (d?.differ_confidence as number) ?? 50;
   const reasonMatch: string  = (d?.reason_match as string)    ?? "";
   const reasonDiffer: string = (d?.reason_differ as string)   ?? "";
+  const matchStrategy: string  = (d?.match_strategy as string)  ?? "";
+  const differStrategy: string = (d?.differ_strategy as string) ?? "";
+  const matchFire: boolean     = (d?.match_fire as boolean)     ?? false;
+  const differFire: boolean    = (d?.differ_fire as boolean)    ?? false;
+  const matchStrategies: string[]  = (d?.match_strategies_triggered as string[])  ?? [];
+  const differStrategies: string[] = (d?.differ_strategies_triggered as string[]) ?? [];
+  const matchTicks: number  = (d?.match_ticks as number)  ?? 1;
+  const differTicks: number = (d?.differ_ticks as number) ?? 1;
   const httpDigit: number    = (d?.current_digit as number)   ?? 0;
   const currentDigit         = liveTick?.digit ?? httpDigit;
   const currentPrice: number = (d?.current_price as number)   ?? 0;
@@ -333,12 +341,22 @@ export default function MatchDifferPage() {
           <div className="grid grid-cols-2 gap-4">
             {/* MATCH */}
             <div className="cyber-card p-4 border-l-4" style={{ borderLeftColor: "#22c55e" }}>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-2">
                 <Target size={14} style={{ color: "#22c55e" }} />
                 <span className="font-rajdhani font-bold text-xs tracking-widest uppercase" style={{ color: "#22c55e" }}>
                   Best MATCH
                 </span>
+                <div className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: "rgba(0,229,255,0.12)", border: "1px solid rgba(0,229,255,0.3)" }}>
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="font-orbitron text-[8px] font-bold" style={{ color: "#00e5ff" }}>AUTO AI</span>
+                  {matchFire && <span className="text-[9px]">🔥</span>}
+                </div>
               </div>
+              {matchStrategy && (
+                <div className="mb-2 px-2 py-1 rounded font-rajdhani text-[9px] font-bold" style={{ background: "rgba(0,229,255,0.06)", color: "#00e5ff", border: "1px solid rgba(0,229,255,0.15)" }}>
+                  {matchStrategy} · {matchTicks}T
+                </div>
+              )}
               <div className="flex items-center gap-4 mb-3">
                 <div className="w-20 h-20 rounded-full flex items-center justify-center font-orbitron text-5xl font-black"
                   style={{ background: DIGIT_COLORS[bestMatch], color: "#fff",
@@ -358,16 +376,36 @@ export default function MatchDifferPage() {
               {reasonMatch && (
                 <div className="font-rajdhani text-[10px] text-muted-foreground leading-relaxed">{reasonMatch}</div>
               )}
+              {matchStrategies.length > 0 && (
+                <div className="mt-2 pt-2 border-t space-y-0.5" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+                  {matchStrategies.map((s, i) => (
+                    <div key={i} className="flex items-center gap-1 font-rajdhani text-[9px] text-muted-foreground">
+                      <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: "#22c55e" }} />
+                      {s}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* DIFFER */}
             <div className="cyber-card p-4 border-l-4" style={{ borderLeftColor: "#ef4444" }}>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-2">
                 <Crosshair size={14} style={{ color: "#ef4444" }} />
                 <span className="font-rajdhani font-bold text-xs tracking-widest uppercase" style={{ color: "#ef4444" }}>
                   Best DIFFER
                 </span>
+                <div className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                  <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#ef4444" }} />
+                  <span className="font-orbitron text-[8px] font-bold" style={{ color: "#ef4444" }}>AUTO AI</span>
+                  {differFire && <span className="text-[9px]">🔥</span>}
+                </div>
               </div>
+              {differStrategy && (
+                <div className="mb-2 px-2 py-1 rounded font-rajdhani text-[9px] font-bold" style={{ background: "rgba(239,68,68,0.06)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.15)" }}>
+                  {differStrategy} · {differTicks}T
+                </div>
+              )}
               <div className="flex items-center gap-4 mb-3">
                 <div className="w-20 h-20 rounded-full flex items-center justify-center font-orbitron text-5xl font-black"
                   style={{ background: DIGIT_COLORS[bestDiffer], color: "#fff",
@@ -386,6 +424,16 @@ export default function MatchDifferPage() {
               </div>
               {reasonDiffer && (
                 <div className="font-rajdhani text-[10px] text-muted-foreground leading-relaxed">{reasonDiffer}</div>
+              )}
+              {differStrategies.length > 0 && (
+                <div className="mt-2 pt-2 border-t space-y-0.5" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+                  {differStrategies.map((s, i) => (
+                    <div key={i} className="flex items-center gap-1 font-rajdhani text-[9px] text-muted-foreground">
+                      <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: "#ef4444" }} />
+                      {s}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>

@@ -322,6 +322,27 @@ export default function DerivTraderPage() {
   const [tpAmount, setTpAmount]               = useState(10);
   const [slAmount, setSlAmount]               = useState(5);
 
+  // ── MD AI confirmation ───────────────────────────────────────────────────
+  interface MdAiInfo { matchDigit: number; matchConf: number; matchStrategy: string; matchReason: string; matchFire: boolean; differDigit: number; differConf: number; differStrategy: string; differReason: string; differFire: boolean; }
+  const [mdAiInfo, setMdAiInfo] = useState<MdAiInfo | null>(null);
+  useEffect(() => {
+    if (!symbol) return;
+    let dead = false;
+    const run = () => {
+      fetch(`/api/match-differ-signals?symbol=${encodeURIComponent(symbol)}`)
+        .then(r => r.json())
+        .then((data: Record<string, unknown>) => {
+          if (dead) return;
+          const mc = data.match_confirmation as { digit: number; confidence: number; strategy: string; reason: string; fire: boolean } | undefined;
+          const dc = data.differ_confirmation as { digit: number; confidence: number; strategy: string; reason: string; fire: boolean } | undefined;
+          if (mc && dc) setMdAiInfo({ matchDigit: mc.digit, matchConf: mc.confidence, matchStrategy: mc.strategy, matchReason: mc.reason, matchFire: mc.fire, differDigit: dc.digit, differConf: dc.confidence, differStrategy: dc.strategy, differReason: dc.reason, differFire: dc.fire });
+        }).catch(() => {});
+    };
+    run();
+    const t = setInterval(run, 3000);
+    return () => { dead = true; clearInterval(t); };
+  }, [symbol]);
+
   const groupSymbols = useMemo(()=>TRACKED_SYMBOLS.filter((s)=>s.group===activeGroup),[activeGroup]);
   const statsMap = useMultiSymbolFeed(TRACKED_SYMBOLS, activeGroup);
   const groupStats = useMemo(()=>{
@@ -742,7 +763,7 @@ export default function DerivTraderPage() {
               </div>
             )}
             {needsDigit && (
-              <div className="mt-2">
+              <div className="mt-2 space-y-2">
                 <div className="font-rajdhani text-[10px] text-muted-foreground mb-1">Target Digit</div>
                 <div className="flex gap-1 flex-wrap">
                   {[0,1,2,3,4,5,6,7,8,9].map((v)=>(
@@ -753,6 +774,41 @@ export default function DerivTraderPage() {
                     </button>
                   ))}
                 </div>
+                {/* AUTO AI MODE panel */}
+                {mdAiInfo && (
+                  <div className="rounded-xl p-3 mt-1" style={{ background:"rgba(0,229,255,0.07)",border:"1px solid rgba(0,229,255,0.35)" }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"/>
+                      <span className="font-orbitron text-[9px] font-bold tracking-widest" style={{ color:"#00e5ff" }}>AUTO AI MODE ON</span>
+                      {(contractType==="DIGITMATCH" ? mdAiInfo.matchFire : mdAiInfo.differFire) && (
+                        <span className="px-1.5 py-0.5 rounded font-orbitron text-[8px] font-bold" style={{ background:"rgba(0,200,83,0.2)",color:"#00c853",border:"1px solid rgba(0,200,83,0.4)" }}>🔥 FIRE</span>
+                      )}
+                    </div>
+                    {contractType==="DIGITMATCH" ? (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center font-orbitron text-xs font-black text-white flex-shrink-0" style={{ background:DIGIT_COLORS[mdAiInfo.matchDigit] }}>{mdAiInfo.matchDigit}</div>
+                          <span className="font-orbitron text-xs font-bold" style={{ color:"#22c55e" }}>Match {mdAiInfo.matchDigit}</span>
+                          <span className="ml-auto font-orbitron text-xs font-bold" style={{ color:mdAiInfo.matchConf>=70?"#22c55e":mdAiInfo.matchConf>=55?"#facc15":"#ef4444" }}>{mdAiInfo.matchConf}%</span>
+                        </div>
+                        <div className="font-rajdhani text-[9px]" style={{ color:"#00e5ff" }}>{mdAiInfo.matchStrategy}</div>
+                        <div className="font-rajdhani text-[9px] text-muted-foreground leading-tight">{mdAiInfo.matchReason}</div>
+                        <button onClick={()=>setTargetDigit(mdAiInfo.matchDigit)} className="mt-1 px-2 py-0.5 rounded font-rajdhani text-[10px] font-bold" style={{ background:"rgba(0,229,255,0.15)",border:"1px solid rgba(0,229,255,0.4)",color:"#00e5ff" }}>Apply AI Digit</button>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center font-orbitron text-xs font-black text-white flex-shrink-0" style={{ background:DIGIT_COLORS[mdAiInfo.differDigit] }}>{mdAiInfo.differDigit}</div>
+                          <span className="font-orbitron text-xs font-bold" style={{ color:"#ef4444" }}>Differ {mdAiInfo.differDigit}</span>
+                          <span className="ml-auto font-orbitron text-xs font-bold" style={{ color:mdAiInfo.differConf>=70?"#22c55e":mdAiInfo.differConf>=55?"#facc15":"#ef4444" }}>{mdAiInfo.differConf}%</span>
+                        </div>
+                        <div className="font-rajdhani text-[9px]" style={{ color:"#ef4444" }}>{mdAiInfo.differStrategy}</div>
+                        <div className="font-rajdhani text-[9px] text-muted-foreground leading-tight">{mdAiInfo.differReason}</div>
+                        <button onClick={()=>setTargetDigit(mdAiInfo.differDigit)} className="mt-1 px-2 py-0.5 rounded font-rajdhani text-[10px] font-bold" style={{ background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.4)",color:"#ef4444" }}>Apply AI Digit</button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

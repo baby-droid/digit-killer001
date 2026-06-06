@@ -310,6 +310,11 @@ function SignalFlyer({ signal }: { signal: AiSignal }) {
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className="font-orbitron text-xs font-bold px-2 py-0.5 rounded" style={{ background: `${contractColor}20`, color: contractColor, border: `1px solid ${contractColor}40` }}>{signal.contract_type}</span>
+          {(signal.contract_type === "MATCHES" || signal.contract_type === "DIFFERS") && (
+            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded font-orbitron text-[8px] font-bold" style={{ background: "rgba(0,229,255,0.12)", color: "#00e5ff", border: "1px solid rgba(0,229,255,0.3)" }}>
+              <span className="w-1 h-1 rounded-full bg-cyan-400 inline-block" style={{ animation: "pulse 1.5s infinite" }}/>AUTO AI
+            </span>
+          )}
           <span className={`risk-${signal.risk_level?.toLowerCase() ?? "medium"} text-[10px]`}>{signal.risk_level}</span>
           {signal.psych_score !== undefined && (
             <span className="font-orbitron text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: `${psychColor}18`, color: psychColor, border: `1px solid ${psychColor}30` }}>
@@ -367,6 +372,24 @@ function StrategyGeneratorPanel({ symbol }: { symbol: string }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<StrategySignal | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // ── AI confirmation for Match/Differ ────────────────────────────────────
+  const isMatchDiffer = selectedContract === "DIGITMATCH" || selectedContract === "DIGITDIFF";
+  interface MdAiRec { matchDigit: number; matchConf: number; matchStrategy: string; matchReason: string; matchFire: boolean; differDigit: number; differConf: number; differStrategy: string; differReason: string; differFire: boolean; }
+  const [mdAiRec, setMdAiRec] = useState<MdAiRec | null>(null);
+  useEffect(() => {
+    if (!isMatchDiffer || !symbol) return;
+    let dead = false;
+    fetch(`/api/match-differ-signals?symbol=${encodeURIComponent(symbol)}`)
+      .then(r => r.json())
+      .then((data: Record<string, unknown>) => {
+        if (dead) return;
+        const mc = data.match_confirmation as { digit: number; confidence: number; strategy: string; reason: string; fire: boolean } | undefined;
+        const dc = data.differ_confirmation as { digit: number; confidence: number; strategy: string; reason: string; fire: boolean } | undefined;
+        if (mc && dc) setMdAiRec({ matchDigit: mc.digit, matchConf: mc.confidence, matchStrategy: mc.strategy, matchReason: mc.reason, matchFire: mc.fire, differDigit: dc.digit, differConf: dc.confidence, differStrategy: dc.strategy, differReason: dc.reason, differFire: dc.fire });
+      }).catch(() => {});
+    return () => { dead = true; };
+  }, [isMatchDiffer, symbol]);
 
   const selectedMeta = CONTRACT_TYPES.flatMap((g) => g.contracts).find((c) => c.id === selectedContract);
   const categoryColor = CONTRACT_TYPES.find((g) => g.contracts.some((c) => c.id === selectedContract))?.color ?? "#00e5ff";
@@ -433,6 +456,42 @@ function StrategyGeneratorPanel({ symbol }: { symbol: string }) {
           </div>
         ))}
       </div>
+
+      {/* AUTO AI MODE panel for Match/Differ */}
+      {isMatchDiffer && mdAiRec && (
+        <div className="rounded-xl p-3" style={{ background: "rgba(0,229,255,0.07)", border: "1px solid rgba(0,229,255,0.3)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="font-orbitron text-[9px] font-bold tracking-widest" style={{ color: "#00e5ff" }}>AUTO AI MODE ON</span>
+            {(selectedContract === "DIGITMATCH" ? mdAiRec.matchFire : mdAiRec.differFire) && (
+              <span className="px-1.5 py-0.5 rounded font-orbitron text-[8px] font-bold" style={{ background: "rgba(0,200,83,0.2)", color: "#00c853", border: "1px solid rgba(0,200,83,0.4)" }}>🔥 FIRE</span>
+            )}
+          </div>
+          {selectedContract === "DIGITMATCH" ? (
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center font-orbitron text-xs font-black text-white flex-shrink-0" style={{ background: DIGIT_COLORS[mdAiRec.matchDigit] }}>{mdAiRec.matchDigit}</div>
+                <span className="font-orbitron text-sm font-bold" style={{ color: DIGIT_COLORS[mdAiRec.matchDigit] }}>Match Digit {mdAiRec.matchDigit}</span>
+                <span className="font-orbitron text-xs font-bold ml-auto" style={{ color: mdAiRec.matchConf >= 70 ? "#22c55e" : "#facc15" }}>{mdAiRec.matchConf}%</span>
+                <button onClick={() => setDigit(String(mdAiRec.matchDigit))} className="px-2 py-0.5 rounded font-rajdhani text-[10px] font-bold" style={{ background: "rgba(0,229,255,0.15)", border: "1px solid rgba(0,229,255,0.4)", color: "#00e5ff" }}>Auto Fill</button>
+              </div>
+              <div className="font-rajdhani text-[9px]" style={{ color: "#00e5ff" }}>{mdAiRec.matchStrategy}</div>
+              <div className="font-rajdhani text-[9px] text-muted-foreground leading-tight">{mdAiRec.matchReason}</div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center font-orbitron text-xs font-black text-white flex-shrink-0" style={{ background: DIGIT_COLORS[mdAiRec.differDigit] }}>{mdAiRec.differDigit}</div>
+                <span className="font-orbitron text-sm font-bold" style={{ color: DIGIT_COLORS[mdAiRec.differDigit] }}>Differ Digit {mdAiRec.differDigit}</span>
+                <span className="font-orbitron text-xs font-bold ml-auto" style={{ color: mdAiRec.differConf >= 70 ? "#22c55e" : "#facc15" }}>{mdAiRec.differConf}%</span>
+                <button onClick={() => setDigit(String(mdAiRec.differDigit))} className="px-2 py-0.5 rounded font-rajdhani text-[10px] font-bold" style={{ background: "rgba(233,30,140,0.15)", border: "1px solid rgba(233,30,140,0.4)", color: "#e91e8c" }}>Auto Fill</button>
+              </div>
+              <div className="font-rajdhani text-[9px]" style={{ color: "#e91e8c" }}>{mdAiRec.differStrategy}</div>
+              <div className="font-rajdhani text-[9px] text-muted-foreground leading-tight">{mdAiRec.differReason}</div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Optional params */}
       <div className="flex flex-wrap items-end gap-3">
