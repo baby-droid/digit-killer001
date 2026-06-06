@@ -8,6 +8,7 @@ import { Zap, Download, AlertCircle, Brain, FileText, RefreshCw, ChevronRight, U
 import logoPath from "@assets/WhatsApp_Image_2026-05-30_at_19.05.28_1780157146139.jpeg";
 import AutoTradePanel, { type TradeSignal } from "@/components/AutoTradePanel";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
+import AiMdAutoBlock from "@/components/AiMdAutoBlock";
 
 // ─────────────────────────────────────────────────────────────────
 //  Types
@@ -1147,6 +1148,9 @@ export default function AiSignalsPage() {
           </>
         )}
       </div>
+
+      {/* ── AI Match/Differ Auto Trade ── */}
+      {symbol && <AiMdAutoBlock symbol={symbol} />}
 
       {/* ── Deriv Connection + Auto Trade Panel ── */}
       <DerivConnectionBar />

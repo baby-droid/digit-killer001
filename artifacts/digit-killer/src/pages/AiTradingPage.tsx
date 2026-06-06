@@ -7,6 +7,7 @@ import {
   type TradeResult, type TradeSpec,
 } from "@/lib/tradeEngine";
 import DerivConnectionBar from "@/components/DerivConnectionBar";
+import AiMdAutoBlock from "@/components/AiMdAutoBlock";
 import {
   Bot, DollarSign, Zap, Play, Square, AlertCircle,
   RefreshCw, TrendingUp, TrendingDown, SkipForward, User,
@@ -589,6 +590,9 @@ export default function AiTradingPage() {
           </div>
         </div>
       )}
+
+      {/* ── AI Match/Differ Auto Trade ──────────────────────────────────── */}
+      <AiMdAutoBlock symbol={symbol} />
 
       {/* ── Deriv Connection Bar ────────────────────────────────────────── */}
       <DerivConnectionBar />
