@@ -793,7 +793,18 @@ export default function DerivTraderPage() {
                         </div>
                         <div className="font-rajdhani text-[9px]" style={{ color:"#00e5ff" }}>{mdAiInfo.matchStrategy}</div>
                         <div className="font-rajdhani text-[9px] text-muted-foreground leading-tight">{mdAiInfo.matchReason}</div>
-                        <button onClick={()=>setTargetDigit(mdAiInfo.matchDigit)} className="mt-1 px-2 py-0.5 rounded font-rajdhani text-[10px] font-bold" style={{ background:"rgba(0,229,255,0.15)",border:"1px solid rgba(0,229,255,0.4)",color:"#00e5ff" }}>Apply AI Digit</button>
+                        <div className="flex gap-1.5 mt-1">
+                          <button onClick={()=>setTargetDigit(mdAiInfo.matchDigit)}
+                            className="px-2 py-0.5 rounded font-rajdhani text-[10px] font-bold"
+                            style={{ background:"rgba(0,229,255,0.15)",border:"1px solid rgba(0,229,255,0.4)",color:"#00e5ff" }}>
+                            Apply Digit
+                          </button>
+                          <button onClick={()=>{ setTargetDigit(mdAiInfo.matchDigit); setAutoTrade(true); }}
+                            className="px-2 py-0.5 rounded font-orbitron text-[9px] font-black"
+                            style={{ background:"rgba(34,197,94,0.2)",border:"1px solid rgba(34,197,94,0.5)",color:"#22c55e" }}>
+                            🎯 AI MATCHES AUTO ▶
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-1">
@@ -804,7 +815,18 @@ export default function DerivTraderPage() {
                         </div>
                         <div className="font-rajdhani text-[9px]" style={{ color:"#ef4444" }}>{mdAiInfo.differStrategy}</div>
                         <div className="font-rajdhani text-[9px] text-muted-foreground leading-tight">{mdAiInfo.differReason}</div>
-                        <button onClick={()=>setTargetDigit(mdAiInfo.differDigit)} className="mt-1 px-2 py-0.5 rounded font-rajdhani text-[10px] font-bold" style={{ background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.4)",color:"#ef4444" }}>Apply AI Digit</button>
+                        <div className="flex gap-1.5 mt-1">
+                          <button onClick={()=>setTargetDigit(mdAiInfo.differDigit)}
+                            className="px-2 py-0.5 rounded font-rajdhani text-[10px] font-bold"
+                            style={{ background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.4)",color:"#ef4444" }}>
+                            Apply Digit
+                          </button>
+                          <button onClick={()=>{ setTargetDigit(mdAiInfo.differDigit); setAutoTrade(true); }}
+                            className="px-2 py-0.5 rounded font-orbitron text-[9px] font-black"
+                            style={{ background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.5)",color:"#ef4444" }}>
+                            ✕ AI DIFFERS AUTO ▶
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

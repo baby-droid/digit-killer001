@@ -656,7 +656,7 @@ export default function SpeedLabPage() {
                   <select value={ticksMap[def.id] ?? def.defaultTicks}
                     onChange={(e) => setTicksMap((p) => ({ ...p, [def.id]: parseInt(e.target.value) }))}
                     className="text-[10px] font-orbitron bg-background border border-border rounded px-1 py-0.5 text-foreground focus:outline-none">
-                    {[1, 2, 3, 5, 10].map((t) => <option key={t} value={t}>{t}T</option>)}
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((t) => <option key={t} value={t}>{t}T</option>)}
                   </select>
                 </div>
               )}

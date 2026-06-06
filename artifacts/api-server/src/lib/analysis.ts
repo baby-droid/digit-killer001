@@ -527,7 +527,8 @@ export function computeMatchAiConfirmation(
       fire: false, reason: `Digit ${coldDigit} least frequent in last 50 ticks`, strategies_triggered: [] };
   }
   return { digit: best.digit, confidence: parseFloat(best.conf.toFixed(1)), ticks: best.ticks,
-    strategy: best.strategy, reason: best.reason, fire: best.conf >= 55,
+    strategy: best.strategy, reason: best.reason,
+    fire: best.conf >= 65 || (best.conf >= 55 && strategies.length >= 2),
     strategies_triggered: strategies };
 }
 
@@ -620,7 +621,8 @@ export function computeDifferAiConfirmation(
       strategies_triggered: [] };
   }
   return { digit: best.digit, confidence: parseFloat(best.conf.toFixed(1)), ticks: best.ticks,
-    strategy: best.strategy, reason: best.reason, fire: best.conf >= 60,
+    strategy: best.strategy, reason: best.reason,
+    fire: best.conf >= 65 || (best.conf >= 60 && strategies.length >= 2),
     strategies_triggered: strategies };
 }
 

@@ -48,7 +48,7 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
 
   // ── Logic settings ──────────────────────────────────────────────────────────
   const [minConfidence,  setMinConfidence ] = useState(DEFAULT_MIN_CONFIDENCE);
-  const [tickOverride,   setTickOverride  ] = useState<"signal" | 1 | 2 | 3 | 5 | 10>("signal");
+  const [tickOverride,   setTickOverride  ] = useState<"signal" | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10>("signal");
   const [allowedTypes,   setAllowedTypes  ] = useState<Set<string>>(new Set());
 
   // ── Stake + Martingale ──────────────────────────────────────────────────────
@@ -318,13 +318,13 @@ export default function AutoTradePanel({ signals, symbol, pageLabel = "Page" }: 
                 Tick Duration Override
               </label>
               <div className="flex flex-wrap gap-1.5">
-                {(["signal", 1, 2, 3, 5, 10] as const).map((v) => (
+                {(["signal", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const).map((v) => (
                   <button key={v} onClick={() => setTickOverride(v)}
-                    className="px-2.5 py-1 rounded font-orbitron text-[10px] font-bold transition-all"
+                    className="px-2 py-1 rounded font-orbitron text-[10px] font-bold transition-all"
                     style={tickOverride === v
                       ? { background: "#00e5ff", color: "#050a0f" }
                       : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#aaa" }}>
-                    {v === "signal" ? "Signal" : `${v}T`}
+                    {v === "signal" ? "Sig" : `${v}T`}
                   </button>
                 ))}
               </div>
