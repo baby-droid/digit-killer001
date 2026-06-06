@@ -207,7 +207,11 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
             authorizedRef.current = true;
             socket.send(JSON.stringify({ balance: 1, subscribe: 1, req_id: reqIdRef.current++ }));
           } else {
-            setStatus("authorizing");
+            // Legacy: proxy is connected to Deriv and authorize has been sent.
+            // Show "connected" optimistically — account/balance info will populate
+            // when the authorize response arrives (usually within ~1 s).
+            setStatus("connected");
+            setError(null);
           }
           return;
         }
