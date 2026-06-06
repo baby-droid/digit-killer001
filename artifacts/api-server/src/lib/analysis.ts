@@ -428,14 +428,20 @@ export function computeEvenOddAnalysis(prices: number[], pipSize: number) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-//  AI Tick Selection — central tick logic for Match/Differ
-//  1T = strong signal (conf ≥ 70): fire immediately, high-probability setup
-//  2T = medium signal (conf 55–69 or 2 strategies): safety window if 1T delayed
-//  3T = pattern visible (conf < 55 with confirmed pattern): allow pattern to complete
+//  AI Tick Selection — central tick logic for ALL AI picks
+//  1T = strong: conf ≥ 70, OR conf ≥ 65 with 2+ strategies confirmed
+//       → all AI logics are met, fire immediately at highest probability
+//  2T = medium: conf 55–69 with 2+ strategies, OR conf ≥ 55 single strategy
+//       → safety window: if 1T goes wrong, 2T recovers on the next tick
+//  3T = pattern visible: conf < 55 but a pattern is detectable
+//       → allow 3 ticks for the pattern to fully complete
 // ────────────────────────────────────────────────────────────────────────────
 function pickAiTicks(conf: number, strategiesCount: number): number {
-  if (conf >= 70) return 1;
+  // 1T — strongest setup: high confidence or multi-strategy at ≥65%
+  if (conf >= 70 || (conf >= 65 && strategiesCount >= 2)) return 1;
+  // 2T — medium: safety buffer if first tick goes wrong
   if (conf >= 55 || strategiesCount >= 2) return 2;
+  // 3T — pattern only: allow it to develop
   return 3;
 }
 

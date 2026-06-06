@@ -26,22 +26,22 @@ interface ContractDef {
 }
 
 const ALL_CONTRACTS: ContractDef[] = [
-  { id: "EVEN",      label: "Even",                contract_type: "DIGITEVEN",  defaultTicks: 5,  color: "#00e5ff", category: "Digits" },
-  { id: "ODD",       label: "Odd",                 contract_type: "DIGITODD",   defaultTicks: 5,  color: "#a78bfa", category: "Digits" },
-  { id: "MATCH0",    label: "Match 0",             contract_type: "DIGITMATCH", digit: 0, defaultTicks: 5, color: "#22c55e", category: "Digits" },
-  { id: "MATCH1",    label: "Match 1",             contract_type: "DIGITMATCH", digit: 1, defaultTicks: 5, color: "#22c55e", category: "Digits" },
-  { id: "MATCH5",    label: "Match 5",             contract_type: "DIGITMATCH", digit: 5, defaultTicks: 5, color: "#22c55e", category: "Digits" },
-  { id: "MATCH9",    label: "Match 9",             contract_type: "DIGITMATCH", digit: 9, defaultTicks: 5, color: "#22c55e", category: "Digits" },
-  { id: "DIFFER5",   label: "Differ 5",            contract_type: "DIGITDIFF",  digit: 5, defaultTicks: 5, color: "#fb923c", category: "Digits" },
-  { id: "OVER4",     label: "Over 4",              contract_type: "DIGITOVER",  barrier: 4, defaultTicks: 5, color: "#f59e0b", category: "Digits" },
-  { id: "OVER5",     label: "Over 5",              contract_type: "DIGITOVER",  barrier: 5, defaultTicks: 5, color: "#f59e0b", category: "Digits" },
-  { id: "UNDER4",    label: "Under 4",             contract_type: "DIGITUNDER", barrier: 4, defaultTicks: 5, color: "#e91e8c", category: "Digits" },
-  { id: "UNDER5",    label: "Under 5",             contract_type: "DIGITUNDER", barrier: 5, defaultTicks: 5, color: "#e91e8c", category: "Digits" },
+  { id: "EVEN",      label: "Even",                contract_type: "DIGITEVEN",  defaultTicks: 1,  color: "#00e5ff", category: "Digits" },
+  { id: "ODD",       label: "Odd",                 contract_type: "DIGITODD",   defaultTicks: 1,  color: "#a78bfa", category: "Digits" },
+  { id: "MATCH0",    label: "Match 0",             contract_type: "DIGITMATCH", digit: 0, defaultTicks: 1, color: "#22c55e", category: "Digits" },
+  { id: "MATCH1",    label: "Match 1",             contract_type: "DIGITMATCH", digit: 1, defaultTicks: 1, color: "#22c55e", category: "Digits" },
+  { id: "MATCH5",    label: "Match 5",             contract_type: "DIGITMATCH", digit: 5, defaultTicks: 1, color: "#22c55e", category: "Digits" },
+  { id: "MATCH9",    label: "Match 9",             contract_type: "DIGITMATCH", digit: 9, defaultTicks: 1, color: "#22c55e", category: "Digits" },
+  { id: "DIFFER5",   label: "Differ 5",            contract_type: "DIGITDIFF",  digit: 5, defaultTicks: 1, color: "#fb923c", category: "Digits" },
+  { id: "OVER4",     label: "Over 4",              contract_type: "DIGITOVER",  barrier: 4, defaultTicks: 1, color: "#f59e0b", category: "Digits" },
+  { id: "OVER5",     label: "Over 5",              contract_type: "DIGITOVER",  barrier: 5, defaultTicks: 1, color: "#f59e0b", category: "Digits" },
+  { id: "UNDER4",    label: "Under 4",             contract_type: "DIGITUNDER", barrier: 4, defaultTicks: 1, color: "#e91e8c", category: "Digits" },
+  { id: "UNDER5",    label: "Under 5",             contract_type: "DIGITUNDER", barrier: 5, defaultTicks: 1, color: "#e91e8c", category: "Digits" },
   // ── AI auto-picks: AI selects the best digit/barrier per market ─────────────
-  { id: "AI_MATCH",  label: "AI Match (auto digit)",   contract_type: "DIGITMATCH", defaultTicks: 1, color: "#34d399", category: "AI Picks" },
-  { id: "AI_DIFFER", label: "AI Differ (auto digit)",  contract_type: "DIGITDIFF",  defaultTicks: 1, color: "#fb923c", category: "AI Picks" },
-  { id: "AI_OVER",   label: "AI Over (auto barrier)",  contract_type: "DIGITOVER",  defaultTicks: 1, color: "#fbbf24", category: "AI Picks" },
-  { id: "AI_UNDER",  label: "AI Under (auto barrier)", contract_type: "DIGITUNDER", defaultTicks: 1, color: "#e879f9", category: "AI Picks" },
+  { id: "AI_MATCH",  label: "AI Match (auto digit)",   contract_type: "DIGITMATCH", defaultTicks: 0, color: "#34d399", category: "AI Picks" },
+  { id: "AI_DIFFER", label: "AI Differ (auto digit)",  contract_type: "DIGITDIFF",  defaultTicks: 0, color: "#fb923c", category: "AI Picks" },
+  { id: "AI_OVER",   label: "AI Over (auto barrier)",  contract_type: "DIGITOVER",  defaultTicks: 0, color: "#fbbf24", category: "AI Picks" },
+  { id: "AI_UNDER",  label: "AI Under (auto barrier)", contract_type: "DIGITUNDER", defaultTicks: 0, color: "#e879f9", category: "AI Picks" },
   { id: "RISE",      label: "Rise",                contract_type: "CALL",       defaultTicks: 5,  color: "#22c55e", category: "Rise/Fall" },
   { id: "FALL",      label: "Fall",                contract_type: "PUT",        defaultTicks: 5,  color: "#ef4444", category: "Rise/Fall" },
   { id: "RUNHIGH",   label: "Only Up",             contract_type: "RUNHIGH",    defaultTicks: 5,  color: "#4ade80", category: "Only" },
@@ -337,7 +337,7 @@ export default function SpeedLabPage() {
         if (!def) continue;
         specs.push({
           contract_type: def.contract_type, symbol: mkt, stake,
-          ticks: ticksMap[cid] ?? def.defaultTicks,
+          ticks: (ticksMap[cid] === 0 || def.defaultTicks === 0) ? 1 : (ticksMap[cid] ?? def.defaultTicks),
           barrier: def.barrier, digit: def.digit,
           label: `${ALL_MARKETS.find((m) => m.key === mkt)?.label ?? mkt} · ${def.label}`,
           confidence: 100, bulk_group: gid, bulk_index: idx++, bulk_total: total_count,
@@ -617,11 +617,24 @@ export default function SpeedLabPage() {
 
       {/* ── Contract type selection ───────────────────────────────────────────── */}
       <div className="rounded-xl border p-4" style={{ borderColor: "rgba(233,30,140,0.2)", background: "rgba(233,30,140,0.02)" }}>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <span className="font-orbitron text-xs font-bold tracking-wider" style={{ color: "#e91e8c" }}>
             {aiMode ? "ALLOWED CONTRACT TYPES (AI picks best from these)" : `CONTRACTS (${selectedContracts.length} selected)`}
           </span>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap items-center">
+            {!aiMode && (
+              <button
+                onClick={() => setTicksMap((p) => {
+                  const upd = { ...p };
+                  ["AI_MATCH", "AI_DIFFER", "AI_OVER", "AI_UNDER"].forEach((id) => { upd[id] = 0; });
+                  return upd;
+                })}
+                className="px-2 py-1 rounded font-orbitron text-[9px] font-bold transition-all"
+                style={{ background: "rgba(52,211,153,0.15)", border: "1px solid rgba(52,211,153,0.4)", color: "#34d399" }}
+                title="Set AI Picks contracts to use AI-determined tick count">
+                🤖 AI TICKS
+              </button>
+            )}
             <button onClick={() => setSelectedContracts(ALL_CONTRACTS.map((c) => c.id))}
               className="font-rajdhani text-[10px] text-muted-foreground hover:text-pink-400 transition-colors">All</button>
             <button onClick={() => setSelectedContracts([])}
@@ -656,6 +669,7 @@ export default function SpeedLabPage() {
                   <select value={ticksMap[def.id] ?? def.defaultTicks}
                     onChange={(e) => setTicksMap((p) => ({ ...p, [def.id]: parseInt(e.target.value) }))}
                     className="text-[10px] font-orbitron bg-background border border-border rounded px-1 py-0.5 text-foreground focus:outline-none">
+                    <option value={0}>AI</option>
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((t) => <option key={t} value={t}>{t}T</option>)}
                   </select>
                 </div>

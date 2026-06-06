@@ -87,8 +87,9 @@ export default function AiMdAutoBlock({ symbol }: AiMdAutoBlockProps) {
   const [mdTrades,     setMdTrades    ] = useState<TradeResult[]>([]);
   const [mdSessionPL,  setMdSessionPL ] = useState(0);
 
-  // ── Refs for cooloff / dedup ───────────────────────────────────────────────
-  const mdExecRef       = useRef(false);
+  // ── Refs for cooloff / dedup (separate per direction so match doesn't block differ) ─
+  const mdMatchExecRef  = useRef(false);
+  const mdDifferExecRef = useRef(false);
   const mdMatchKeyRef   = useRef("");
   const mdDifferKeyRef  = useRef("");
   const mdMatchCoolRef  = useRef(0);
@@ -104,7 +105,7 @@ export default function AiMdAutoBlock({ symbol }: AiMdAutoBlockProps) {
 
   // ── Auto-fire MATCH ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!aiMatchOn || deriv.status !== "connected" || mdExecRef.current) return;
+    if (!aiMatchOn || deriv.status !== "connected" || mdMatchExecRef.current) return;
     if (!sig.matchFire || sig.matchConf < 60) return;
     const now = Date.now();
     if (now - mdMatchCoolRef.current < 2000) return;
@@ -112,7 +113,7 @@ export default function AiMdAutoBlock({ symbol }: AiMdAutoBlockProps) {
     if (key === mdMatchKeyRef.current) return;
     mdMatchKeyRef.current  = key;
     mdMatchCoolRef.current = now;
-    mdExecRef.current      = true;
+    mdMatchExecRef.current = true;
     setMdExecuting(true);
     const stake    = mdMartOn ? nextStake(mdStake, mdMartMult, mdLossStreak) : mdStake;
     const aiTicks  = sig.matchTicks > 0 ? sig.matchTicks : 1;
@@ -132,13 +133,13 @@ export default function AiMdAutoBlock({ symbol }: AiMdAutoBlockProps) {
           else setMdLossStreak(0);
         }
       })
-      .finally(() => { mdExecRef.current = false; setMdExecuting(false); });
+      .finally(() => { mdMatchExecRef.current = false; setMdExecuting(false); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiMatchOn, deriv.status, sig.matchFire, sig.matchConf, sig.bestMatch, sig.matchStrategy, sig.matchTicks, mdStake, mdMartOn, mdMartMult, mdLossStreak, symbol]);
 
   // ── Auto-fire DIFFER ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (!aiDifferOn || deriv.status !== "connected" || mdExecRef.current) return;
+    if (!aiDifferOn || deriv.status !== "connected" || mdDifferExecRef.current) return;
     if (!sig.differFire || sig.differConf < 65) return;
     const now = Date.now();
     if (now - mdDifferCoolRef.current < 2000) return;
@@ -146,7 +147,7 @@ export default function AiMdAutoBlock({ symbol }: AiMdAutoBlockProps) {
     if (key === mdDifferKeyRef.current) return;
     mdDifferKeyRef.current  = key;
     mdDifferCoolRef.current = now;
-    mdExecRef.current       = true;
+    mdDifferExecRef.current = true;
     setMdExecuting(true);
     const stake    = mdMartOn ? nextStake(mdStake, mdMartMult, mdLossStreak) : mdStake;
     const aiTicks  = sig.differTicks > 0 ? sig.differTicks : 1;
@@ -166,7 +167,7 @@ export default function AiMdAutoBlock({ symbol }: AiMdAutoBlockProps) {
           else setMdLossStreak(0);
         }
       })
-      .finally(() => { mdExecRef.current = false; setMdExecuting(false); });
+      .finally(() => { mdDifferExecRef.current = false; setMdExecuting(false); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiDifferOn, deriv.status, sig.differFire, sig.differConf, sig.bestDiffer, sig.differStrategy, sig.differTicks, mdStake, mdMartOn, mdMartMult, mdLossStreak, symbol]);
 

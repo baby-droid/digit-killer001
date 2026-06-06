@@ -429,8 +429,7 @@ export default function AiTradingPage() {
     const key = `${bestSignal.contract_type}-${bestSignal.confidence.toFixed(1)}`;
     if (key === lastAutoKeyRef.current) return;
     lastAutoKeyRef.current = key;
-    const delay = 1200 + Math.random() * 1500;
-    const t = setTimeout(() => { void executeTrade(bestSignal); }, delay);
+    const t = setTimeout(() => { void executeTrade(bestSignal); }, 50);
     return () => clearTimeout(t);
   });
 
