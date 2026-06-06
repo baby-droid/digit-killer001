@@ -453,6 +453,43 @@ export function DerivProvider({ children }: { children: React.ReactNode }) {
     if (ws.current) { ws.current.onclose = null; ws.current.close(1000); }
   }, [cancelReconnect]);
 
+  // ── Reconnect on internet restore / tab refocus ─────────────────────────────
+  useEffect(() => {
+    const handleOnline = () => {
+      if (
+        lastAuthPayloadRef.current &&
+        !intentionalDisconnectRef.current &&
+        (ws.current == null || ws.current.readyState === WebSocket.CLOSED || ws.current.readyState === WebSocket.CLOSING)
+      ) {
+        cancelReconnect();
+        reconnectAttemptsRef.current = 0;
+        setError(null);
+        openSocketRef.current?.(lastAuthPayloadRef.current);
+      }
+    };
+
+    const handleVisibility = () => {
+      if (
+        document.visibilityState === "visible" &&
+        lastAuthPayloadRef.current &&
+        !intentionalDisconnectRef.current &&
+        (ws.current == null || ws.current.readyState === WebSocket.CLOSED || ws.current.readyState === WebSocket.CLOSING)
+      ) {
+        cancelReconnect();
+        reconnectAttemptsRef.current = 0;
+        setError(null);
+        openSocketRef.current?.(lastAuthPayloadRef.current);
+      }
+    };
+
+    window.addEventListener("online", handleOnline);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [cancelReconnect]);
+
   // ── Auto-restore session on mount ──────────────────────────────────────────
   useEffect(() => {
     const legacyToken = localStorage.getItem("deriv_token");

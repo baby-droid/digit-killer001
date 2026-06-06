@@ -7,8 +7,8 @@ const APP_ID            = process.env.DERIV_APP_ID ?? "1089";
 const DERIV_WS_PRIMARY  = `wss://ws.binaryws.com/websockets/v3?app_id=${APP_ID}`;
 const DERIV_WS_ALT      = `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
 const DERIV_WS_PUBLIC   = `wss://api.derivws.com/trading/v1/options/ws/public`;
-const PING_INTERVAL_MS  = 25_000;
-const PONG_TIMEOUT_MS   = 10_000;
+const PING_INTERVAL_MS  = 20_000;
+const PONG_TIMEOUT_MS   = 15_000;
 const MAX_RECONNECTS    = 8;
 
 interface Session {
@@ -78,7 +78,7 @@ function connectToDeriv(session: Session, url: string, fallback?: string): void 
         sendToClient(session, { type: "proxy_error", message: "Deriv connection timed out — please reconnect" });
       }
     }
-  }, 12_000);
+  }, 7_000);
 
   derivWs.on("open", () => {
     clearTimeout(connectionTimeout);
