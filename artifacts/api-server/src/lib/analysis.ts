@@ -427,34 +427,239 @@ export function computeEvenOddAnalysis(prices: number[], pipSize: number) {
   };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+//  AI Confirmation: MATCH strategy engine (PDF strategies)
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface MatchAiConfirmation {
+  digit: number;
+  confidence: number;
+  ticks: number;
+  strategy: string;
+  reason: string;
+  fire: boolean;
+  strategies_triggered: string[];
+}
+
+export function computeMatchAiConfirmation(
+  digits: number[],
+  currentDigit: number
+): MatchAiConfirmation {
+  const N = digits.length;
+  if (N < 20) {
+    return { digit: currentDigit, confidence: 30, ticks: 1, strategy: "Insufficient data", reason: "Need 20+ ticks", fire: false, strategies_triggered: [] };
+  }
+
+  const lastSeen = new Array(10).fill(-999);
+  for (let i = 0; i < N; i++) lastSeen[digits[i]] = i;
+  const ticksSince = lastSeen.map((ls) => N - 1 - ls);
+
+  const last5  = digits.slice(-5);
+  const last10 = digits.slice(-10);
+  const last15 = digits.slice(-15);
+
+  const strategies: string[] = [];
+  const candidates: Array<{ digit: number; conf: number; strategy: string; reason: string; ticks: number }> = [];
+
+  // ── Strategy 1: Delayed Digit Exhaustion (15–25 absent ticks) ──────────────
+  let exDigit = -1; let maxAbs = 0;
+  for (let d = 0; d <= 9; d++) { if (ticksSince[d] > maxAbs) { maxAbs = ticksSince[d]; exDigit = d; } }
+  if (maxAbs >= 15 && exDigit >= 0) {
+    const conf = Math.min(86, 50 + (maxAbs - 15) * 2.5);
+    strategies.push(`Delayed Exhaustion: digit ${exDigit} absent ${maxAbs} ticks`);
+    candidates.push({ digit: exDigit, conf, strategy: "Delayed Digit Exhaustion", ticks: 1,
+      reason: `Digit ${exDigit} has been absent for ${maxAbs} ticks — statistical pressure to reappear` });
+  }
+
+  // ── Strategy 2: Double Echo (same digit 2× in last 5) ─────────────────────
+  const freq5 = new Array(10).fill(0);
+  last5.forEach((d) => freq5[d]++);
+  for (let d = 0; d <= 9; d++) {
+    if (freq5[d] >= 2) {
+      strategies.push(`Double Echo: digit ${d} appeared ${freq5[d]}× in last 5`);
+      candidates.push({ digit: d, conf: 62, strategy: "Double Echo Return", ticks: 1,
+        reason: `Digit ${d} echoed ${freq5[d]}× in last 5 ticks — echo return in 1–2 ticks likely` });
+    }
+  }
+
+  // ── Strategy 3: Compression Release (≤4 unique digits in last 15) ─────────
+  const uniqueIn15 = new Set(last15).size;
+  if (uniqueIn15 <= 4) {
+    let bestMissing = -1; let bestAbs = 0;
+    for (let d = 0; d <= 9; d++) {
+      if (!last15.includes(d) && ticksSince[d] > bestAbs) { bestAbs = ticksSince[d]; bestMissing = d; }
+    }
+    if (bestMissing >= 0) {
+      strategies.push(`Compression Release: only ${uniqueIn15} digits in last 15, digit ${bestMissing} overdue`);
+      candidates.push({ digit: bestMissing, conf: 56, strategy: "Compression Release", ticks: 1,
+        reason: `Only ${uniqueIn15} unique digits in last 15 ticks — digit ${bestMissing} breakout likely` });
+    }
+  }
+
+  // ── Strategy 4: Triple Repetition Continuation ────────────────────────────
+  if (N >= 3) {
+    const l3 = digits.slice(-3);
+    if (l3[0] === l3[1] && l3[1] === l3[2]) {
+      strategies.push(`Triple Repetition: digit ${l3[0]} ×3 consecutive`);
+      candidates.push({ digit: l3[0], conf: 48, strategy: "Triple Continuation", ticks: 1,
+        reason: `Digit ${l3[0]} appeared 3× consecutively — rare continuation signal (high risk)` });
+    }
+  }
+
+  // ── Strategy 5: Fractal Mirror (alternating 4-tick pattern) ───────────────
+  if (N >= 4) {
+    const l4 = digits.slice(-4);
+    if (l4[0] === l4[2] && l4[1] === l4[3] && l4[0] !== l4[1]) {
+      const nextDigit = currentDigit === l4[0] ? l4[1] : l4[0];
+      strategies.push(`Fractal Mirror: alternating pattern …${l4[0]},${l4[1]},${l4[0]},${l4[1]}`);
+      candidates.push({ digit: nextDigit, conf: 50, strategy: "Fractal Mirror Pattern", ticks: 1,
+        reason: `Alternating pattern detected — digit ${nextDigit} is the next fractal step` });
+    }
+  }
+
+  candidates.sort((a, b) => b.conf - a.conf);
+  const best = candidates[0];
+  if (!best) {
+    const freq50 = new Array(10).fill(0);
+    digits.slice(-50).forEach((d) => freq50[d]++);
+    const coldDigit = freq50.indexOf(Math.min(...freq50));
+    return { digit: coldDigit, confidence: 35, ticks: 1, strategy: "Statistical Minimum",
+      fire: false, reason: `Digit ${coldDigit} least frequent in last 50 ticks`, strategies_triggered: [] };
+  }
+  return { digit: best.digit, confidence: parseFloat(best.conf.toFixed(1)), ticks: best.ticks,
+    strategy: best.strategy, reason: best.reason, fire: best.conf >= 55,
+    strategies_triggered: strategies };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+//  AI Confirmation: DIFFER strategy engine (PDF strategies)
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface DifferAiConfirmation {
+  digit: number;
+  confidence: number;
+  ticks: number;
+  strategy: string;
+  reason: string;
+  fire: boolean;
+  strategies_triggered: string[];
+}
+
+export function computeDifferAiConfirmation(
+  digits: number[],
+  currentDigit: number
+): DifferAiConfirmation {
+  const N = digits.length;
+  if (N < 10) {
+    return { digit: currentDigit, confidence: 30, ticks: 1, strategy: "Insufficient data", reason: "Need 10+ ticks", fire: false, strategies_triggered: [] };
+  }
+
+  const last5  = digits.slice(-5);
+  const last10 = digits.slice(-10);
+  const last3  = digits.slice(-3);
+
+  const strategies: string[] = [];
+  const candidates: Array<{ digit: number; conf: number; strategy: string; reason: string; ticks: number }> = [];
+
+  // ── Strategy 1: Triple Exhaustion (3× same → DIFFER) ─────────────────────
+  if (N >= 3 && last3[0] === last3[1] && last3[1] === last3[2]) {
+    strategies.push(`Triple Exhaustion: digit ${last3[0]} ×3 consecutive`);
+    candidates.push({ digit: last3[0], conf: 84, strategy: "Triple Exhaustion Reversal", ticks: 1,
+      reason: `Digit ${last3[0]} appeared 3× in a row — extremely high probability of NOT appearing next` });
+  }
+
+  // ── Strategy 2: Double Repetition Reversal (2× in a row → DIFFER) ─────────
+  if (N >= 2 && digits[N - 1] === digits[N - 2]) {
+    const rep = digits[N - 1];
+    if (!candidates.some((c) => c.digit === rep)) {
+      strategies.push(`Double Repetition Reversal: digit ${rep} ×2`);
+      candidates.push({ digit: rep, conf: 72, strategy: "Double Repetition Reversal", ticks: 1,
+        reason: `Digit ${rep} appeared twice consecutively — high probability of NOT appearing next` });
+    }
+  }
+
+  // ── Strategy 3: Burst Domination (digit 4+ in last 10 → DIFFER) ───────────
+  const freq10 = new Array(10).fill(0);
+  last10.forEach((d) => freq10[d]++);
+  const burstMax = Math.max(...freq10);
+  const burstDigit = freq10.indexOf(burstMax);
+  if (burstMax >= 4 && !candidates.some((c) => c.digit === burstDigit)) {
+    const conf = Math.min(80, 50 + (burstMax - 4) * 8);
+    strategies.push(`Burst Domination: digit ${burstDigit} appeared ${burstMax}/10 times`);
+    candidates.push({ digit: burstDigit, conf, strategy: "Burst Domination Reversal", ticks: 1,
+      reason: `Digit ${burstDigit} appeared ${burstMax}× in last 10 — exhaustion reversal signal` });
+  }
+
+  // ── Strategy 4: Cluster Rejection (3+ same digit in last 5) ──────────────
+  const freq5 = new Array(10).fill(0);
+  last5.forEach((d) => freq5[d]++);
+  const clMax = Math.max(...freq5);
+  const clDigit = freq5.indexOf(clMax);
+  if (clMax >= 3 && !candidates.some((c) => c.digit === clDigit)) {
+    strategies.push(`Cluster Rejection: digit ${clDigit} appeared ${clMax}/5 in last 5`);
+    candidates.push({ digit: clDigit, conf: 68, strategy: "Cluster Rejection", ticks: 1,
+      reason: `Digit ${clDigit} clusters ${clMax}× in last 5 ticks — rejection/differ signal strong` });
+  }
+
+  // ── Strategy 5: Fast Rotation (≥8 unique in last 10 → DIFFER current) ─────
+  const uniqueIn10 = new Set(last10).size;
+  if (uniqueIn10 >= 8 && !candidates.some((c) => c.digit === currentDigit)) {
+    strategies.push(`Fast Rotation: ${uniqueIn10}/10 unique digits, no clustering`);
+    candidates.push({ digit: currentDigit, conf: 55, strategy: "Fast Rotation Differ", ticks: 1,
+      reason: `High digit variety (${uniqueIn10} unique in last 10) — current digit ${currentDigit} unlikely to repeat` });
+  }
+
+  candidates.sort((a, b) => b.conf - a.conf);
+  const best = candidates[0];
+  if (!best) {
+    const freq50 = new Array(10).fill(0);
+    digits.slice(-50).forEach((d) => freq50[d]++);
+    const hotDigit = freq50.indexOf(Math.max(...freq50));
+    return { digit: hotDigit, confidence: 38, ticks: 1, strategy: "Statistical Maximum",
+      fire: false, reason: `Digit ${hotDigit} most frequent in last 50 — probable DIFFER target`,
+      strategies_triggered: [] };
+  }
+  return { digit: best.digit, confidence: parseFloat(best.conf.toFixed(1)), ticks: best.ticks,
+    strategy: best.strategy, reason: best.reason, fire: best.conf >= 60,
+    strategies_triggered: strategies };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
 export function computeMatchDifferSignals(digitStats: DigitStats[], prices: number[], pipSize: number) {
   const currentDigit = extractLastDigit(prices[prices.length - 1] ?? 0, pipSize);
+  const allDigits = prices.map((p) => extractLastDigit(p, pipSize));
 
-  // Best match: most frequent digit (likely to appear again in short window)
+  // Run PDF-based AI confirmation
+  const matchConf = computeMatchAiConfirmation(allDigits, currentDigit);
+  const differConf = computeDifferAiConfirmation(allDigits, currentDigit);
+
+  // Legacy frequency stats for fallback/display
   const sorted = [...digitStats].sort((a, b) => b.percentage - a.percentage);
-  const bestMatch = sorted[0].digit;
-  const bestDiffer = sorted[sorted.length - 1].digit;
-
-  const matchPct = sorted[0].percentage;
-  const differPct = sorted[sorted.length - 1].percentage;
-
-  // Ticks: higher confidence needs fewer ticks
-  const matchTicks = matchPct > 15 ? 5 : matchPct > 12 ? 7 : 10;
-  const differTicks = differPct < 7 ? 5 : differPct < 9 ? 7 : 10;
-
-  const matchConfidence = Math.min(95, matchPct * 5);
-  const differConfidence = Math.min(95, (10 - differPct) * 10);
+  const legacyMatchPct  = sorted.find((d) => d.digit === matchConf.digit)?.percentage  ?? sorted[0].percentage;
+  const legacyDifferPct = sorted.find((d) => d.digit === differConf.digit)?.percentage ?? sorted[sorted.length - 1].percentage;
 
   return {
-    best_match: bestMatch,
-    best_differ: bestDiffer,
-    match_ticks: matchTicks,
-    differ_ticks: differTicks,
-    match_confidence: parseFloat(matchConfidence.toFixed(1)),
-    differ_confidence: parseFloat(differConfidence.toFixed(1)),
-    current_digit: currentDigit,
-    reason_match: `Digit ${bestMatch} has highest frequency at ${matchPct}%`,
-    reason_differ: `Digit ${bestDiffer} has lowest frequency at ${differPct}%`,
+    best_match:         matchConf.digit,
+    best_differ:        differConf.digit,
+    match_ticks:        matchConf.ticks,
+    differ_ticks:       differConf.ticks,
+    match_confidence:   matchConf.confidence,
+    differ_confidence:  differConf.confidence,
+    current_digit:      currentDigit,
+    reason_match:       matchConf.reason,
+    reason_differ:      differConf.reason,
+    match_strategy:     matchConf.strategy,
+    differ_strategy:    differConf.strategy,
+    match_fire:         matchConf.fire,
+    differ_fire:        differConf.fire,
+    match_strategies_triggered:  matchConf.strategies_triggered,
+    differ_strategies_triggered: differConf.strategies_triggered,
+    match_confirmation:  matchConf,
+    differ_confirmation: differConf,
+    // Legacy frequency info
+    match_pct:  parseFloat(legacyMatchPct.toFixed(1)),
+    differ_pct: parseFloat(legacyDifferPct.toFixed(1)),
   };
 }
 
@@ -822,33 +1027,52 @@ export function computeAiSignals(
     }));
   }
 
-  // ── 4. MATCH — best digit by combined recent + full frequency ────────────────
+  // ── 4. MATCH — PDF AI Confirmation strategies ────────────────────────────────
+  const matchAi = computeMatchAiConfirmation(allDigits, currentDigit);
+  allSignals.push(buildSignal({
+    ct: "DIGITMATCH", dir: "MATCH", entryDigit: matchAi.digit, ticks: matchAi.ticks, digit: matchAi.digit,
+    baseConf: matchAi.confidence, risk: matchAi.confidence >= 70 ? "Medium" : matchAi.confidence >= 60 ? "High" : "Very High",
+    strategy: matchAi.strategy,
+    analyticsReason: matchAi.reason + (matchAi.strategies_triggered.length ? ` [${matchAi.strategies_triggered.length} strategy triggers]` : ""),
+  }));
+  // Also emit a signal for the statistically coldest digit (legacy fallback for coverage)
   const scoredDigits = Array.from({ length: 10 }, (_, d) => ({
     digit: d,
     recentPct: mkFreq(last10)[d].pct,
     fullPct:   fullFreq[d].pct,
     score:     mkFreq(last10)[d].pct * 0.60 + fullFreq[d].pct * 0.40,
   })).sort((a, b) => b.score - a.score);
+  if (scoredDigits[0].digit !== matchAi.digit) {
+    const fb = scoredDigits[0];
+    const fbConf = Math.min(68, fb.score * 3 + (last5.includes(fb.digit) ? 5 : 0));
+    allSignals.push(buildSignal({
+      ct: "DIGITMATCH", dir: "MATCH", entryDigit: fb.digit, ticks: 1, digit: fb.digit,
+      baseConf: fbConf, risk: "High",
+      strategy: "Frequency Match Fallback",
+      analyticsReason: `Match ${fb.digit}: ${fb.recentPct.toFixed(1)}% last-10 | ${fb.fullPct.toFixed(1)}% full`,
+    }));
+  }
 
-  const bestMatch   = scoredDigits[0];
-  const matchConf   = Math.min(85, bestMatch.score * 3 + (last5.includes(bestMatch.digit) ? 8 : 0));
+  // ── 5. DIFFER — PDF AI Confirmation strategies ──────────────────────────────
+  const differAi = computeDifferAiConfirmation(allDigits, currentDigit);
   allSignals.push(buildSignal({
-    ct: "DIGITMATCH", dir: "MATCH", entryDigit: bestMatch.digit, ticks: 5, digit: bestMatch.digit,
-    baseConf: matchConf, risk: "High",
-    strategy: "Recent Frequency Match",
-    analyticsReason: `Match ${bestMatch.digit}: ${bestMatch.recentPct.toFixed(1)}% last-10 | ${bestMatch.fullPct.toFixed(1)}% full`,
+    ct: "DIGITDIFF", dir: "DIFFER", entryDigit: differAi.digit, ticks: differAi.ticks, digit: differAi.digit,
+    baseConf: differAi.confidence, risk: differAi.confidence >= 72 ? "Low" : differAi.confidence >= 60 ? "Medium" : "High",
+    strategy: differAi.strategy,
+    analyticsReason: differAi.reason + (differAi.strategies_triggered.length ? ` [${differAi.strategies_triggered.length} strategy triggers]` : ""),
   }));
-
-  // ── 5. DIFFER — coldest digit in recent windows ──────────────────────────────
-  const worstRecent  = scoredDigits[scoredDigits.length - 1];
-  const absentInLast5 = !last5.includes(worstRecent.digit);
-  const differConf   = Math.min(84, (100 - worstRecent.recentPct) * 0.80 + (absentInLast5 ? 8 : 0));
-  allSignals.push(buildSignal({
-    ct: "DIGITDIFF", dir: "DIFFER", entryDigit: worstRecent.digit, ticks: 5, digit: worstRecent.digit,
-    baseConf: differConf, risk: "Low",
-    strategy: "Cold Digit Avoidance",
-    analyticsReason: `Differ ${worstRecent.digit}: ${worstRecent.recentPct.toFixed(1)}% recent (cold) | absent last-5: ${absentInLast5}`,
-  }));
+  // Coldest digit differ as coverage fallback
+  const worstRecent = scoredDigits[scoredDigits.length - 1];
+  if (worstRecent.digit !== differAi.digit) {
+    const absentInLast5 = !last5.includes(worstRecent.digit);
+    const fallbackDiffConf = Math.min(65, (100 - worstRecent.recentPct) * 0.70 + (absentInLast5 ? 5 : 0));
+    allSignals.push(buildSignal({
+      ct: "DIGITDIFF", dir: "DIFFER", entryDigit: worstRecent.digit, ticks: 1, digit: worstRecent.digit,
+      baseConf: fallbackDiffConf, risk: "Low",
+      strategy: "Cold Digit Avoidance",
+      analyticsReason: `Differ ${worstRecent.digit}: ${worstRecent.recentPct.toFixed(1)}% recent (cold) | absent last-5: ${absentInLast5}`,
+    }));
+  }
 
   // ── 6. RISE (CALL) ───────────────────────────────────────────────────────────
   const riseConf = Math.min(88, 50 + (up20Pct - 50) * 0.70 + (up10Pct > 60 ? 8 : up10Pct < 40 ? -5 : 0));

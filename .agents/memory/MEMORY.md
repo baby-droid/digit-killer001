@@ -5,3 +5,5 @@
 - [Global Deriv WS context](deriv-context-arch.md) — DerivContext.tsx wraps entire app; one shared WebSocket per session; all trading pages use useDerivContext(); auto-restores from localStorage deriv_token on mount.
 - [Trade engine accuracy](trade-engine-accuracy.md) — accurate win/loss uses proposal_open_contract subscription (not polling); bulk trades fire parallel proposal+buy via Promise.all; DerivConnectionBar is required on every trading page.
 - [Deriv OAuth token types](deriv-oauth-tokens.md) — legacy oauth.deriv.com returns WS trading tokens; PKCE auth.deriv.com returns Bearer access_token (REST only); never mix them.
+- [PDF Match/Differ AI strategies](pdf-strategies.md) — 5 PDF strategies each for MATCH and DIFFER in computeMatchAiConfirmation / computeDifferAiConfirmation; allDigits already declared at top of computeAiSignals — do NOT redeclare inside function.
+- [Speed Lab AI Picks](speed-lab-ai-picks.md) — AI_MATCH/AI_DIFFER/AI_OVER/AI_UNDER in ALL_CONTRACTS; signalToContractId maps any digit/barrier to AI_* ids; resetAll() resets all session state + settings to defaults.

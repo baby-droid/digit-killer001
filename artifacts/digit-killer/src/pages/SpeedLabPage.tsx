@@ -26,25 +26,30 @@ interface ContractDef {
 }
 
 const ALL_CONTRACTS: ContractDef[] = [
-  { id: "EVEN",     label: "Even",      contract_type: "DIGITEVEN",  defaultTicks: 5, color: "#00e5ff", category: "Digits" },
-  { id: "ODD",      label: "Odd",       contract_type: "DIGITODD",   defaultTicks: 5, color: "#a78bfa", category: "Digits" },
-  { id: "MATCH0",   label: "Match 0",   contract_type: "DIGITMATCH", digit: 0, defaultTicks: 5, color: "#22c55e", category: "Digits" },
-  { id: "MATCH1",   label: "Match 1",   contract_type: "DIGITMATCH", digit: 1, defaultTicks: 5, color: "#22c55e", category: "Digits" },
-  { id: "MATCH5",   label: "Match 5",   contract_type: "DIGITMATCH", digit: 5, defaultTicks: 5, color: "#22c55e", category: "Digits" },
-  { id: "MATCH9",   label: "Match 9",   contract_type: "DIGITMATCH", digit: 9, defaultTicks: 5, color: "#22c55e", category: "Digits" },
-  { id: "DIFFER5",  label: "Differ 5",  contract_type: "DIGITDIFF",  digit: 5, defaultTicks: 5, color: "#fb923c", category: "Digits" },
-  { id: "OVER4",    label: "Over 4",    contract_type: "DIGITOVER",  barrier: 4, defaultTicks: 5, color: "#f59e0b", category: "Digits" },
-  { id: "OVER5",    label: "Over 5",    contract_type: "DIGITOVER",  barrier: 5, defaultTicks: 5, color: "#f59e0b", category: "Digits" },
-  { id: "UNDER4",   label: "Under 4",   contract_type: "DIGITUNDER", barrier: 4, defaultTicks: 5, color: "#e91e8c", category: "Digits" },
-  { id: "UNDER5",   label: "Under 5",   contract_type: "DIGITUNDER", barrier: 5, defaultTicks: 5, color: "#e91e8c", category: "Digits" },
-  { id: "RISE",     label: "Rise",      contract_type: "CALL",       defaultTicks: 5, color: "#22c55e", category: "Rise/Fall" },
-  { id: "FALL",     label: "Fall",      contract_type: "PUT",        defaultTicks: 5, color: "#ef4444", category: "Rise/Fall" },
-  { id: "RUNHIGH",  label: "Only Up",   contract_type: "RUNHIGH",    defaultTicks: 5, color: "#4ade80", category: "Only" },
-  { id: "RUNLOW",   label: "Only Down", contract_type: "RUNLOW",     defaultTicks: 5, color: "#f87171", category: "Only" },
-  { id: "HIGHTICK", label: "High Tick", contract_type: "HIGHERTICK", barrier: 3, defaultTicks: 5, color: "#fbbf24", category: "Tick" },
-  { id: "LOWTICK",  label: "Low Tick",  contract_type: "LOWERTICK",  barrier: 3, defaultTicks: 5, color: "#60a5fa", category: "Tick" },
+  { id: "EVEN",      label: "Even",                contract_type: "DIGITEVEN",  defaultTicks: 5,  color: "#00e5ff", category: "Digits" },
+  { id: "ODD",       label: "Odd",                 contract_type: "DIGITODD",   defaultTicks: 5,  color: "#a78bfa", category: "Digits" },
+  { id: "MATCH0",    label: "Match 0",             contract_type: "DIGITMATCH", digit: 0, defaultTicks: 5, color: "#22c55e", category: "Digits" },
+  { id: "MATCH1",    label: "Match 1",             contract_type: "DIGITMATCH", digit: 1, defaultTicks: 5, color: "#22c55e", category: "Digits" },
+  { id: "MATCH5",    label: "Match 5",             contract_type: "DIGITMATCH", digit: 5, defaultTicks: 5, color: "#22c55e", category: "Digits" },
+  { id: "MATCH9",    label: "Match 9",             contract_type: "DIGITMATCH", digit: 9, defaultTicks: 5, color: "#22c55e", category: "Digits" },
+  { id: "DIFFER5",   label: "Differ 5",            contract_type: "DIGITDIFF",  digit: 5, defaultTicks: 5, color: "#fb923c", category: "Digits" },
+  { id: "OVER4",     label: "Over 4",              contract_type: "DIGITOVER",  barrier: 4, defaultTicks: 5, color: "#f59e0b", category: "Digits" },
+  { id: "OVER5",     label: "Over 5",              contract_type: "DIGITOVER",  barrier: 5, defaultTicks: 5, color: "#f59e0b", category: "Digits" },
+  { id: "UNDER4",    label: "Under 4",             contract_type: "DIGITUNDER", barrier: 4, defaultTicks: 5, color: "#e91e8c", category: "Digits" },
+  { id: "UNDER5",    label: "Under 5",             contract_type: "DIGITUNDER", barrier: 5, defaultTicks: 5, color: "#e91e8c", category: "Digits" },
+  // ── AI auto-picks: AI selects the best digit/barrier per market ─────────────
+  { id: "AI_MATCH",  label: "AI Match (auto digit)",   contract_type: "DIGITMATCH", defaultTicks: 1, color: "#34d399", category: "AI Picks" },
+  { id: "AI_DIFFER", label: "AI Differ (auto digit)",  contract_type: "DIGITDIFF",  defaultTicks: 1, color: "#fb923c", category: "AI Picks" },
+  { id: "AI_OVER",   label: "AI Over (auto barrier)",  contract_type: "DIGITOVER",  defaultTicks: 1, color: "#fbbf24", category: "AI Picks" },
+  { id: "AI_UNDER",  label: "AI Under (auto barrier)", contract_type: "DIGITUNDER", defaultTicks: 1, color: "#e879f9", category: "AI Picks" },
+  { id: "RISE",      label: "Rise",                contract_type: "CALL",       defaultTicks: 5,  color: "#22c55e", category: "Rise/Fall" },
+  { id: "FALL",      label: "Fall",                contract_type: "PUT",        defaultTicks: 5,  color: "#ef4444", category: "Rise/Fall" },
+  { id: "RUNHIGH",   label: "Only Up",             contract_type: "RUNHIGH",    defaultTicks: 5,  color: "#4ade80", category: "Only" },
+  { id: "RUNLOW",    label: "Only Down",           contract_type: "RUNLOW",     defaultTicks: 5,  color: "#f87171", category: "Only" },
+  { id: "HIGHTICK",  label: "High Tick",           contract_type: "HIGHERTICK", barrier: 3, defaultTicks: 5, color: "#fbbf24", category: "Tick" },
+  { id: "LOWTICK",   label: "Low Tick",            contract_type: "LOWERTICK",  barrier: 3, defaultTicks: 5, color: "#60a5fa", category: "Tick" },
 ];
-const CONTRACT_CATEGORIES = ["Digits", "Rise/Fall", "Only", "Tick"];
+const CONTRACT_CATEGORIES = ["Digits", "AI Picks", "Rise/Fall", "Only", "Tick"];
 
 const ALL_MARKETS = [
   { key: "R_10",      label: "Vol 10",     group: "Volatility" },
@@ -89,9 +94,12 @@ interface AiScanResult {
   contractId?: string; contract_type?: string;
   confidence?: number; reason?: string; strategy?: string;
   errorMsg?: string;
+  digit?: number; barrier?: number;
 }
 
-/** Map an AI signal → ALL_CONTRACTS id (null if unmapped) */
+/** Map an AI signal → ALL_CONTRACTS id.
+ *  For exact-match contracts (MATCH0 etc.) keep specific id for manual mode.
+ *  For dynamic AI-picked digits/barriers, always map to AI_* category. */
 function signalToContractId(sig: AiSignal): string | null {
   const ct = sig.contract_type;
   if (ct === "DIGITEVEN")  return "EVEN";
@@ -102,14 +110,30 @@ function signalToContractId(sig: AiSignal): string | null {
   if (ct === "RUNLOW")     return "RUNLOW";
   if (ct === "HIGHERTICK") return "HIGHTICK";
   if (ct === "LOWERTICK")  return "LOWTICK";
-  if (ct === "DIGITOVER")  { if (sig.barrier === 4) return "OVER4"; if (sig.barrier === 5) return "OVER5"; return null; }
-  if (ct === "DIGITUNDER") { if (sig.barrier === 4) return "UNDER4"; if (sig.barrier === 5) return "UNDER5"; return null; }
-  if (ct === "DIGITMATCH") {
-    if (sig.digit === 0) return "MATCH0"; if (sig.digit === 1) return "MATCH1";
-    if (sig.digit === 5) return "MATCH5"; if (sig.digit === 9) return "MATCH9";
-    return null;
+  // Over/Under: exact known barriers keep named id, all others → AI_OVER/AI_UNDER
+  if (ct === "DIGITOVER")  {
+    if (sig.barrier === 4) return "OVER4";
+    if (sig.barrier === 5) return "OVER5";
+    return "AI_OVER";
   }
-  if (ct === "DIGITDIFF")  { if (sig.digit === 5) return "DIFFER5"; return null; }
+  if (ct === "DIGITUNDER") {
+    if (sig.barrier === 4) return "UNDER4";
+    if (sig.barrier === 5) return "UNDER5";
+    return "AI_UNDER";
+  }
+  // Match: exact known digits keep named id, all others → AI_MATCH
+  if (ct === "DIGITMATCH") {
+    if (sig.digit === 0) return "MATCH0";
+    if (sig.digit === 1) return "MATCH1";
+    if (sig.digit === 5) return "MATCH5";
+    if (sig.digit === 9) return "MATCH9";
+    return "AI_MATCH";
+  }
+  // Differ: digit 5 keeps DIFFER5, all others → AI_DIFFER
+  if (ct === "DIGITDIFF")  {
+    if (sig.digit === 5) return "DIFFER5";
+    return "AI_DIFFER";
+  }
   return null;
 }
 
@@ -142,6 +166,26 @@ function AiScanPanel({ scans, markets }: { scans: Record<string, AiScanResult>; 
   if (Object.keys(scans).length === 0) return null;
   const picked = markets.filter((m) => scans[m]?.status === "picked");
   const skipped = markets.filter((m) => scans[m]?.status !== "picked");
+
+  function contractLabel(scan: AiScanResult): string {
+    const def = ALL_CONTRACTS.find((c) => c.id === scan.contractId);
+    const ct = scan.contract_type ?? "";
+    if (ct === "DIGITMATCH") return `Match ${scan.digit ?? "?"}`;
+    if (ct === "DIGITDIFF")  return `Differ ${scan.digit ?? "?"}`;
+    if (ct === "DIGITOVER")  return `Over ${scan.barrier ?? "?"}`;
+    if (ct === "DIGITUNDER") return `Under ${scan.barrier ?? "?"}`;
+    return def?.label ?? ct;
+  }
+
+  function contractColor(scan: AiScanResult): string {
+    const ct = scan.contract_type ?? "";
+    if (ct === "DIGITMATCH") return "#34d399";
+    if (ct === "DIGITDIFF")  return "#fb923c";
+    if (ct === "DIGITOVER")  return "#fbbf24";
+    if (ct === "DIGITUNDER") return "#e879f9";
+    return ALL_CONTRACTS.find((c) => c.id === scan.contractId)?.color ?? "#00e5ff";
+  }
+
   return (
     <div className="rounded-xl border p-3 space-y-2" style={{ borderColor: "rgba(0,229,255,0.2)", background: "rgba(0,229,255,0.03)" }}>
       <div className="flex items-center gap-2">
@@ -156,15 +200,19 @@ function AiScanPanel({ scans, markets }: { scans: Record<string, AiScanResult>; 
           const mktLabel = ALL_MARKETS.find((m) => m.key === mkt)?.label ?? mkt;
           if (!scan) return null;
           if (scan.status === "picked") {
-            const def = ALL_CONTRACTS.find((c) => c.id === scan.contractId);
             return (
               <div key={mkt} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
                 style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)" }}>
                 <CheckCircle size={10} className="text-green-400 flex-shrink-0" />
                 <span className="font-orbitron text-[9px] font-bold text-foreground truncate flex-1">{mktLabel}</span>
-                <span className="font-rajdhani text-[9px] font-bold truncate" style={{ color: def?.color ?? "#00e5ff" }}>
-                  {def?.label ?? scan.contract_type}
+                <span className="font-rajdhani text-[9px] font-bold truncate" style={{ color: contractColor(scan) }}>
+                  {contractLabel(scan)}
                 </span>
+                {scan.strategy && (
+                  <span className="font-rajdhani text-[8px] text-muted-foreground hidden sm:inline truncate max-w-20" title={scan.strategy}>
+                    {scan.strategy.split(" ").slice(0, 2).join(" ")}
+                  </span>
+                )}
                 <span className="font-orbitron text-[9px] font-bold text-green-400 flex-shrink-0">
                   {scan.confidence?.toFixed(0)}%
                 </span>
@@ -252,6 +300,25 @@ export default function SpeedLabPage() {
       if (!existing) return [update as TradeResult, ...prev.slice(0, 299)];
       return prev.map((t) => t.id === update.id ? { ...t, ...update } : t);
     });
+  }, []);
+
+  /** Reset ALL settings + session state back to defaults */
+  const resetAll = useCallback(() => {
+    setTrades([]);
+    setAiScans({});
+    setSessionPL(0);
+    setTradesExecuted(0);
+    setLossStreak(0);
+    setBaseStake(1);
+    setMartingaleOn(false);
+    setMartMult(2);
+    setTpEnabled(false);
+    setTpAmount(50);
+    setSlEnabled(false);
+    setSlAmount(20);
+    setAutoMode(false);
+    setAutoInterval(10);
+    consecutiveWinsRef.current = 0;
   }, []);
 
   // ── Execute: Manual ───────────────────────────────────────────────────────────
@@ -362,6 +429,8 @@ export default function SpeedLabPage() {
         confidence: topSig.confidence,
         reason: topSig.reason ?? "",
         strategy: topSig.strategy ?? "",
+        digit: topSig.digit,
+        barrier: typeof topSig.barrier === "number" ? topSig.barrier : undefined,
       };
 
       // Use the same tick duration for all signals in this batch → same exit spot
@@ -752,7 +821,7 @@ export default function SpeedLabPage() {
           <span className="font-rajdhani text-xs text-red-400 font-bold">
             {tpHit ? `Take Profit +$${tpAmount}` : slHit ? `Stop Loss -$${slAmount}` : `Trade limit (${tradeLimit})`} — Speed Lab paused
           </span>
-          <button onClick={() => { setSessionPL(0); setTradesExecuted(0); setLossStreak(0); setAutoMode(false); }}
+          <button onClick={() => resetAll()}
             className="ml-auto font-rajdhani text-[10px] text-muted-foreground hover:text-foreground underline">Reset & Resume</button>
         </div>
       )}
@@ -803,13 +872,20 @@ export default function SpeedLabPage() {
                 : <><Rocket size={16} /> Execute All · {manualContractCount} contracts · ${(currentStake * manualContractCount).toFixed(2)}</>}
         </button>
         <button
-          onClick={() => setAutoMode((p) => !p)}
+          onClick={() => {
+            if (autoMode) {
+              // Stopping auto → full reset to defaults
+              resetAll();
+            } else {
+              setAutoMode(true);
+            }
+          }}
           disabled={deriv.status !== "connected" || blocked || (aiMode ? selectedMarkets.length === 0 : manualContractCount === 0)}
           className="flex items-center gap-2 px-6 py-3.5 rounded-xl font-orbitron text-sm font-bold tracking-wider transition-all disabled:opacity-40"
           style={autoMode
             ? { background: "rgba(239,68,68,0.15)", border: "2px solid #ef4444", color: "#ef4444" }
             : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.15)", color: "#888" }}>
-          {autoMode ? <><Square size={16} /> Stop Auto</> : <><Bot size={16} /> Auto Lab</>}
+          {autoMode ? <><Square size={16} /> Stop & Reset</> : <><Bot size={16} /> Auto Lab</>}
         </button>
       </div>
 
@@ -841,8 +917,8 @@ export default function SpeedLabPage() {
             <span className="font-orbitron text-xs font-bold tracking-wider" style={{ color: "#e91e8c" }}>
               TRADE LOG · {trades.length} entries · {wins}W / {losses}L
             </span>
-            <button onClick={() => { setTrades([]); setAiScans({}); }}
-              className="font-rajdhani text-[10px] text-muted-foreground hover:text-foreground transition-colors">clear</button>
+            <button onClick={() => resetAll()}
+              className="font-rajdhani text-[10px] text-muted-foreground hover:text-foreground transition-colors">clear &amp; reset</button>
           </div>
           <div className="max-h-96 overflow-y-auto">
             {Object.entries(
